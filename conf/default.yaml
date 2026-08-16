@@ -23,3 +23,21 @@ baseline:
 
 metrics:
   confidence: 0.95
+
+model:
+  R: 5           # receptive field; depth = (R-1)/2
+  width: 64       # channels in each hidden Conv3d layer
+  channels: [64, 64, 64]  # informational; actual widths are uniform=width for now
+
+training:
+  shots_per_epoch: 2000000
+  epochs: 20
+  batch_size: 256
+  lr: 0.001
+  basis: z
+  noise_upscaling:
+    enabled: true
+    target_p: 0.006   # train at this p; deliberately higher than eval p (see docs/DECISIONS.md)
+  eval_p: 0.003         # evaluate the trained model at this p (matches Phase 1 baseline)
+  # Deliberate deviation from the reference recipe (67M shots/epoch, 100
+  # epochs, 8 GPUs): CPU-only training budget. See docs/LIMITATIONS.md.
