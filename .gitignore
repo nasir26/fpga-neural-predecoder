@@ -1,0 +1,17 @@
+venv/
+__pycache__/
+*.pyc
+.pytest_cache/
+models/
+*.egg-info/
+.vscode/
+*.log
+hls/proj_*/
+hls/*.log
+hls/vitis_hls.log
+host/*.o
+host/*.xo
+host/*.xclbin
+.Xil/
+*.jou
+vitis_hls.log

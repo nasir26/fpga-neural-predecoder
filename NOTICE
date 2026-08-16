@@ -1,0 +1,29 @@
+fpga-neural-predecoder
+Copyright 2026 Nasir Ali, C-DAC Noida
+
+This product is an independent, from-scratch implementation of a neural
+pre-decoder concept for quantum error correction, targeting a Xilinx Alveo
+U55C FPGA. It contains no source code from, and is not derived from, any
+NVIDIA repository.
+
+The method being reimplemented was originally published by NVIDIA in:
+
+  - NVIDIA "Ising-Decoding" repository:
+    https://github.com/NVIDIA/Ising-Decoding (Apache License 2.0)
+
+  - Chamberland, Olle, Li, Thornton, Baratta, "Fast and accurate AI-based
+    pre-decoders for surface codes", arXiv:2604.12841, 2026.
+
+  - The companion color-code / Chromobius pre-decoder paper referenced
+    alongside the above (color code is explicitly out of scope for this
+    project).
+
+No model weights, code, or other artifacts from the NVIDIA Ising-Decoding
+repository or its associated Hugging Face checkpoints are included in or
+were used to produce this repository. All neural network weights in this
+project are trained locally, from scratch, on CPU.
+
+This project depends on the following third-party open-source packages,
+each under its own license (see requirements.txt for pinned versions):
+Stim, PyMatching, NumPy, SciPy, PyTorch, Matplotlib, Pandas, pytest, PyYAML,
+tqdm, and (host side, optional) pyxrt / Xilinx XRT.
