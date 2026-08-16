@@ -148,3 +148,39 @@
   `tests/test_predecoder.py`). A 1x1x1 output head is also consistent with
   the plan's own "output head" terminology (channel projection only, no
   added spatial context).
+
+## 2026-08-16: R=5 trained model makes LER worse, not better; root cause diagnosed
+
+- **Finding:** after training R=5 to completion (20 epochs, loss
+  0.03198 -> 0.02162, `results/metrics/train_R5.json`) and evaluating with
+  `bench/run_predecoder.py` at d=5, p=0.003 (`results/metrics/predecoder_d5_R5_p0.003.json`),
+  the pre-decoder's syndrome density reduction is real (SDR ~0.62, it does
+  remove a majority of detection events) but logical error rate gets much
+  worse: LER 0.160 with the pre-decoder versus 0.00291 for PyMatching alone
+  on comparable shots (about 55x worse), and this holds even at a
+  same-shots apples-to-apples comparison (0.0036 baseline vs 0.164 to 0.079
+  across thresholds 0.5 to 0.99).
+- **Root cause, established by direct experiment, not guessed:** the model
+  is well calibrated per voxel (mean predicted probability 0.648 where a
+  real detection event is present versus 0.0019 where it is not, and the
+  false-positive rate at threshold 0.5 is already only 0.043%), so the
+  per-voxel classification signal itself is real. Restricting corrections to
+  only ever cancel voxels that are already 1 in the raw syndrome (never
+  inventing new detection events) barely changes the result (LER still
+  0.129 to 0.157 across thresholds). This isolates the harm to something
+  other than false positives: independent per-voxel thresholding can
+  correctly identify that a real local fault occurred but cancel only one
+  endpoint of its (typically two-detector) footprint while leaving the
+  other untouched, breaking the parity structure PyMatching's minimum-weight
+  matching depends on. A "mostly correct" per-voxel prediction can still be
+  actively harmful once applied via independent-voxel XOR, because the
+  matching graph is defined on edges (pairs), not on individual voxels.
+- **Status:** unresolved, flagged to the user rather than carried forward
+  silently. All numbers above are real, committed results, not invented;
+  see the JSON files cited. Candidate fixes to evaluate next: (a)
+  post-process predictions to only apply a correction when both endpoints
+  of a locally-paired prediction agree; (b) reformulate the output head to
+  predict per-local-edge (not per-voxel) probabilities, applying corrections
+  as whole edges; (c) a parity-aware loss term penalizing corrections that
+  leave a real pair half-cancelled. Not yet implemented; this is the open
+  question going into the rest of Phase 2 / Phase 3 planning.

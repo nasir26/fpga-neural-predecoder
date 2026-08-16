@@ -1,0 +1,23 @@
+{
+  "distance": 9,
+  "rounds": 9,
+  "basis": "z",
+  "p": 0.003,
+  "R": 5,
+  "train_p": 0.006,
+  "shots": 100000,
+  "seed": 123,
+  "threshold": 0.5,
+  "ler": 0.37787,
+  "ler_ci_low": 0.3748696389356391,
+  "ler_ci_high": 0.38087974385124046,
+  "syndrome_density_before": 0.04812219444444445,
+  "syndrome_density_after": 0.022446833333333333,
+  "syndrome_density_reduction": 0.5335451013305826,
+  "timing_shots": 1000,
+  "mean_latency_us_per_shot": 2512.2997685102746,
+  "mean_latency_us_per_round": 279.14441872336386,
+  "baseline_ler": null,
+  "ler_reduction_factor": null,
+  "speedup_vs_baseline": null
+}
