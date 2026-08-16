@@ -50,3 +50,24 @@ the reason it was made. Entries are added as each phase introduces them; see
   large fraction," not all, of detection events, but means the pre-decoder
   is architecturally incapable of ever fully resolving those nonlocal
   events on its own. See `docs/DECISIONS.md`.
+- **The R=5 model does not yet demonstrate a net LER improvement at the
+  default decision threshold, and does not yet demonstrate distance
+  generalisation.** After fixing three real bugs found during evaluation
+  (per-voxel parity breaking; local corrections not tracking their own
+  logical-observable effect; an XOR-parity bug in that same observable
+  tracking), LER at d=5, p=0.003, threshold=0.5 is 0.0129, still about 4.4x
+  worse than the PyMatching-only baseline (0.00291), though a threshold
+  around 0.95 gets within noise of baseline (0.00303) while still removing
+  26% of syndrome density. LER gets worse, not better, at distances beyond
+  the R=5 training distance (d=7, 9, 11), the opposite of the fully
+  convolutional distance-generalisation property the method is supposed to
+  have. Full numbers and the diagnosis trail are in `docs/DECISIONS.md`
+  and `results/metrics/predecoder_d{5,7,9,11}_R5_p0.003.json`.
+- **The evaluation script's per-shot latency numbers are not trustworthy
+  yet.** `bench/run_predecoder.py`'s timing loop reports mean per-shot
+  latencies over 100ms at `timing_shots=1000`, but isolated component
+  benchmarks (model forward, matching decode, edge correction, observable
+  parity) total roughly 1-2ms combined. This is a benchmarking-harness bug,
+  not a real latency measurement; not yet root-caused. LER, SDR, and
+  ler_reduction_factor in the same result files are unaffected. See
+  `docs/DECISIONS.md`.

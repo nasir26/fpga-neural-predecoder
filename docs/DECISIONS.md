@@ -209,4 +209,103 @@
   channel set.
 - **Consequence:** the R=5 training run must be redone from scratch with
   the new architecture (previous checkpoint and results deleted; see
-  previous entry). Not yet re-run as of this entry.
+  previous entry). Retrained; see the next two entries for what was found.
+
+## 2026-08-16: second bug found by re-evaluating the retrained model: local corrections silently dropped their own observable-flip effect
+
+- **Finding:** after retraining R=5 with the edge-based architecture (loss
+  0.00435 -> 0.00222 over 20 epochs) and evaluating, LER at d=5, p=0.003 was
+  0.106, still about 36x worse than baseline (0.00291), essentially
+  unchanged from the old architecture's failure mode. This ruled out "half
+  cancelled pairs" as the (whole) explanation, since the new architecture
+  makes that structurally impossible.
+- **Root cause, confirmed with an oracle experiment before touching
+  production code:** applying a correction (whether from the model or, to
+  isolate the question, from perfect ground-truth local edges) removes that
+  edge's contribution from the syndrome PyMatching sees, but does nothing to
+  account for whether that same edge also flips the logical observable.
+  Measured directly from the DEM at d=5, p=0.003: 82 of 696 local errors
+  (about 12%) carry an observable flip. An oracle-correction test using the
+  real fired local edges but with NO observable tracking reproduced the
+  exact same catastrophic failure (LER 0.117 vs baseline 0.00305) as both
+  architectures' trained models. This proved the problem was never about
+  model accuracy; it was a missing term in the evaluation pipeline itself.
+- **Fix, validated before applying to production code:** the same oracle
+  experiment, extended to also XOR the local corrections' own observable
+  parity into PyMatching's residual-decode result before comparing to the
+  true observable, gave LER 0.00115, *better* than baseline (0.00305), not
+  worse. Implemented as `src.qec.dem.build_channel_observable_map`
+  ((channel, anchor detector) -> whether that local edge flips the
+  observable, built from the same DEM the catalog and incidence matrix come
+  from) and `bench.run_predecoder.local_correction_observable_parity`
+  (applies it to whatever edges were actually corrected, model or oracle).
+  This only affects evaluation, not training: the training loss never
+  touched observables, so no retraining was needed for this fix.
+
+## 2026-08-16: with both bugs fixed, the trained R=5 model still isn't net-positive at any single decision threshold
+
+- **Finding:** with the observable-tracking fix applied, LER at d=5,
+  p=0.003, threshold=0.5 improved to 0.0897 (from 0.106), but is still
+  about 31x worse than baseline. A threshold sweep (0.5 to 0.999) shows LER
+  improves as threshold rises (0.090 -> 0.078 -> 0.064 -> 0.056 -> 0.0038
+  -> 0.0035 at thresholds 0.5, 0.7, 0.9, 0.95, 0.99, 0.999) but syndrome
+  density reduction collapses in the same direction (0.55 -> 0.50 -> 0.37
+  -> 0.26 -> 0.009 -> 0.000): the model only stops being net-harmful once
+  it is so conservative it is barely doing anything. At every threshold
+  tried, LER never drops meaningfully below the 0.00291 baseline while SDR
+  is still substantially positive; there is no operating point in this
+  sweep where the pre-decoder is both useful (removes a real fraction of
+  detection events) and net-beneficial (LER same or better than baseline).
+  The formulation is now provably sound (the oracle test above beats
+  baseline), so this is a model-precision problem, not a pipeline bug: the
+  trained model has not learned to distinguish real local edges from
+  plausible-looking false ones precisely enough, given the current 20-epoch,
+  2e6-shots/epoch, width-64 training budget. Flagged to the user rather than
+  quietly accepted or further tuned without checking in; see the
+  conversation for how this was resolved.
+
+## 2026-08-16: third bug found: build_channel_observable_map double-counted an even-parity observable target as a flip
+
+- **Finding:** the threshold-sweep re-diagnosis above used
+  `build_channel_observable_map`, which turned out to have its own bug,
+  found while writing a regression test for the *previous* fix (the test
+  initially failed: oracle-correction LER was 0.104, not competitive with
+  baseline, even with observable tracking supposedly applied).
+- **Root cause:** 25 of the local DEM error lines at d=5, p=0.003 list the
+  logical observable target twice (e.g. a merged error line combining two
+  underlying mechanisms that each individually flip the observable, netting
+  to no flip). `build_channel_observable_map` treated "the observable
+  appears in this error's target list at all" as "this error flips the
+  observable," rather than computing XOR-parity of how many times it
+  appears. This inflated the map from the correct 53 nonzero (channel,
+  anchor) entries to 78, causing the composed prediction to be wrong for
+  roughly a quarter of all observable-carrying local edges.
+- **Fix:** `build_channel_observable_map` now flips only when
+  `len(obs_ids) % 2 == 1`. Verified directly (obs_map.sum() now 53,
+  matching hand computation) and via the regression test in
+  `tests/test_observable_tracking.py`, which was failing before this fix
+  and passes after it.
+- **Result after both observable-tracking bugs were fixed:** re-evaluating
+  the same R=5 checkpoint at threshold=0.5, LER at d=5, p=0.003 improved
+  further to 0.0129 (from 0.0897), about 4.4x worse than baseline (0.00291),
+  down from the original 55x. A threshold sweep at d=5 shows a genuinely
+  promising operating point around threshold=0.95: LER 0.00303 (within
+  noise of baseline's 0.00291) while still achieving 26% syndrome density
+  reduction. LER still degrades with distance beyond the R=5 training
+  distance (d=7: 0.066, d=9: 0.104, d=11: 0.156, all worse than baseline
+  where available), meaning the distance-generalisation property is not
+  yet demonstrated. This is the honest state of Phase 2 as of this entry;
+  not yet resolved further.
+- **Separate, non-correctness issue noticed while investigating:** the
+  per-shot timing loop in `bench/run_predecoder.py` reports absurd
+  mean_latency_us_per_shot values (>100,000us) when `timing_shots=1000` and
+  `shots=100000`, but reports normal values (~1-2ms) at smaller
+  `timing_shots`. Isolated micro-benchmarks of every component (model
+  forward, matcher.decode, edge correction, observable parity) run in
+  ~1-2ms combined, so this is a benchmarking-harness bug (likely something
+  degrading over many loop iterations, not yet root-caused), not a real
+  latency number. Latency numbers in the committed `predecoder_d*.json`
+  files should not be trusted until this is fixed; LER, SDR, and
+  ler_reduction_factor are unaffected and are correct. Flagged for a later
+  pass (Phase 6 benchmarking, or sooner if latency numbers are needed
+  before then).
