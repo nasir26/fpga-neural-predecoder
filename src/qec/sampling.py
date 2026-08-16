@@ -6,6 +6,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 
 import numpy as np
+import scipy.sparse
 import stim
 
 from src.qec.circuits import detector_coords_to_grid_index, detector_grid_shape
@@ -16,6 +17,23 @@ class SampledShots:
     volume: np.ndarray       # uint8, shape (shots, T, H, W)
     observables: np.ndarray  # bool, shape (shots, num_observables)
     flat_detectors: np.ndarray  # bool, shape (shots, num_detectors); pre-grid, for decoding
+
+
+@dataclass
+class TrainingShots:
+    diff: np.ndarray         # uint8, shape (shots, T, H, W); network input
+    target: np.ndarray       # uint8, shape (shots, T, H, W); ground-truth local fault frame
+    volume: np.ndarray       # uint8, shape (shots, T, H, W); raw detection events
+    observables: np.ndarray  # bool, shape (shots, num_observables)
+
+
+def _scatter_to_grid(
+    flat_bits: np.ndarray, grid_index: np.ndarray, shots: int, T: int, H: int, W: int
+) -> np.ndarray:
+    grid = np.zeros((shots, T, H, W), dtype=np.uint8)
+    t_idx, row_idx, col_idx = grid_index[:, 0], grid_index[:, 1], grid_index[:, 2]
+    grid[:, t_idx, row_idx, col_idx] = flat_bits.astype(np.uint8)
+    return grid
 
 
 def sample_detection_volume(
@@ -30,12 +48,40 @@ def sample_detection_volume(
 
     grid_index = detector_coords_to_grid_index(circuit)  # (num_detectors, 3)
     T, H, W = detector_grid_shape(distance, rounds)
-
-    volume = np.zeros((shots, T, H, W), dtype=np.uint8)
-    t_idx, row_idx, col_idx = grid_index[:, 0], grid_index[:, 1], grid_index[:, 2]
-    volume[:, t_idx, row_idx, col_idx] = flat_detectors.astype(np.uint8)
+    volume = _scatter_to_grid(flat_detectors, grid_index, shots, T, H, W)
 
     return SampledShots(volume=volume, observables=observables, flat_detectors=flat_detectors)
+
+
+def sample_training_shots(
+    circuit: stim.Circuit,
+    incidence_local: scipy.sparse.csr_matrix,
+    distance: int,
+    rounds: int,
+    shots: int,
+    seed: int,
+) -> TrainingShots:
+    """DEM-level sampling: gives both the detection volume and which DEM
+    error mechanisms fired, needed to build the ground-truth target (see
+    src.qec.dem.build_error_incidence_matrix). Slower than
+    sample_detection_volume (no error tracking there), used only for
+    training data generation.
+    """
+    dem = circuit.detector_error_model(decompose_errors=True)
+    dem_sampler = dem.compile_sampler(seed=seed)
+    flat_detectors, observables, error_data = dem_sampler.sample(shots=shots, return_errors=True)
+
+    grid_index = detector_coords_to_grid_index(circuit)
+    T, H, W = detector_grid_shape(distance, rounds)
+    volume = _scatter_to_grid(flat_detectors, grid_index, shots, T, H, W)
+
+    # XOR-parity of local fired-error footprints, in GF(2) via matmul + mod 2.
+    flat_target = incidence_local.T.dot(error_data.astype(np.uint8).T).T % 2
+    target = _scatter_to_grid(flat_target.astype(bool), grid_index, shots, T, H, W)
+
+    diff = diff_frames(volume)
+
+    return TrainingShots(diff=diff, target=target, volume=volume, observables=observables)
 
 
 def diff_frames(volume: np.ndarray) -> np.ndarray:
