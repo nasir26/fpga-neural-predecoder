@@ -175,12 +175,38 @@
   matching depends on. A "mostly correct" per-voxel prediction can still be
   actively harmful once applied via independent-voxel XOR, because the
   matching graph is defined on edges (pairs), not on individual voxels.
-- **Status:** unresolved, flagged to the user rather than carried forward
-  silently. All numbers above are real, committed results, not invented;
-  see the JSON files cited. Candidate fixes to evaluate next: (a)
-  post-process predictions to only apply a correction when both endpoints
-  of a locally-paired prediction agree; (b) reformulate the output head to
-  predict per-local-edge (not per-voxel) probabilities, applying corrections
-  as whole edges; (c) a parity-aware loss term penalizing corrections that
-  leave a real pair half-cancelled. Not yet implemented; this is the open
-  question going into the rest of Phase 2 / Phase 3 planning.
+- **Status:** resolved by switching to the per-local-edge output head; see
+  the next entry. The R=5 results cited above (`train_R5.json`,
+  `predecoder_d{5,7,9,11}_R5_p0.003.json`) were from the old per-voxel
+  architecture and have been deleted from `results/metrics/` since they no
+  longer correspond to any code in the repository; they are preserved in
+  git history (commit `15cfb2d`) if needed for comparison.
+
+## 2026-08-16: switched to a per-local-edge output head (fixes the parity bug)
+
+- **Decision:** `PreDecoder3D` now outputs `1 + len(edge_offsets)` channels
+  instead of 1: channel 0 for weight-1 ("singleton") local DEM errors,
+  channels 1..N for the N distinct relative offsets among weight-2
+  ("paired") local DEM errors. `edge_offsets` is computed dynamically from
+  the training circuit's DEM (`src.qec.dem.build_local_edge_catalog`), not
+  hardcoded, and stored in the model checkpoint so evaluation at any
+  distance reuses the exact catalog the model was trained with. Corrections
+  are applied as complete units
+  (`src.model.edges.apply_local_edge_corrections`): a paired channel's
+  activation always flips both its anchor and offset-partner voxel
+  together, so a real fault's footprint can never be half-cancelled.
+- **Alternatives considered:** post-processing a pair-agreement gate on the
+  existing per-voxel model (cheaper, no retraining, but heuristic and the
+  model was never trained to produce pairable outputs); a parity-aware loss
+  term on the same per-voxel architecture (keeps the simpler architecture
+  but only discourages, doesn't structurally prevent, half-cancellation).
+- **Reason:** asked the user after diagnosing the root cause; they chose
+  the structural fix over the two heuristic ones. The offset catalog was
+  verified empirically stable across d=5,7,9,11 (Z basis) and checked at
+  d=9 for X basis (13 offsets each, with one offset differing between X and
+  Z as expected from the code's transpose duality) before committing to
+  this design, so it is safe to treat as a fixed-size, distance-independent
+  channel set.
+- **Consequence:** the R=5 training run must be redone from scratch with
+  the new architecture (previous checkpoint and results deleted; see
+  previous entry). Not yet re-run as of this entry.

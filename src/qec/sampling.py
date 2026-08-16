@@ -22,7 +22,7 @@ class SampledShots:
 @dataclass
 class TrainingShots:
     diff: np.ndarray         # uint8, shape (shots, T, H, W); network input
-    target: np.ndarray       # uint8, shape (shots, T, H, W); ground-truth local fault frame
+    target: np.ndarray       # uint8, shape (shots, C, T, H, W); per-edge-channel ground truth
     volume: np.ndarray       # uint8, shape (shots, T, H, W); raw detection events
     observables: np.ndarray  # bool, shape (shots, num_observables)
 
@@ -55,7 +55,8 @@ def sample_detection_volume(
 
 def sample_training_shots(
     circuit: stim.Circuit,
-    incidence_local: scipy.sparse.csr_matrix,
+    channel_incidence: scipy.sparse.csr_matrix,
+    num_channels: int,
     distance: int,
     rounds: int,
     shots: int,
@@ -63,9 +64,13 @@ def sample_training_shots(
 ) -> TrainingShots:
     """DEM-level sampling: gives both the detection volume and which DEM
     error mechanisms fired, needed to build the ground-truth target (see
-    src.qec.dem.build_error_incidence_matrix). Slower than
+    src.qec.dem.build_error_channel_incidence). Slower than
     sample_detection_volume (no error tracking there), used only for
     training data generation.
+
+    channel_incidence: sparse (num_errors, num_channels * num_detectors),
+    from build_error_channel_incidence. num_channels must match how it was
+    built (1 + len(edge_offsets)).
     """
     dem = circuit.detector_error_model(decompose_errors=True)
     dem_sampler = dem.compile_sampler(seed=seed)
@@ -73,11 +78,16 @@ def sample_training_shots(
 
     grid_index = detector_coords_to_grid_index(circuit)
     T, H, W = detector_grid_shape(distance, rounds)
+    num_detectors = flat_detectors.shape[1]
     volume = _scatter_to_grid(flat_detectors, grid_index, shots, T, H, W)
 
     # XOR-parity of local fired-error footprints, in GF(2) via matmul + mod 2.
-    flat_target = incidence_local.T.dot(error_data.astype(np.uint8).T).T % 2
-    target = _scatter_to_grid(flat_target.astype(bool), grid_index, shots, T, H, W)
+    flat_target = channel_incidence.T.dot(error_data.astype(np.uint8).T).T % 2  # (shots, C*num_detectors)
+    flat_target = flat_target.reshape(shots, num_channels, num_detectors).astype(bool)
+
+    target = np.zeros((shots, num_channels, T, H, W), dtype=np.uint8)
+    t_idx, row_idx, col_idx = grid_index[:, 0], grid_index[:, 1], grid_index[:, 2]
+    target[:, :, t_idx, row_idx, col_idx] = flat_target.astype(np.uint8)
 
     diff = diff_frames(volume)
 

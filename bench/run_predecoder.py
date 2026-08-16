@@ -32,12 +32,13 @@ from src.qec import metrics as qec_metrics
 from src.qec.circuits import NoiseModel, build_rotated_surface_code_circuit, detector_coords_to_grid_index
 from src.qec.dem import build_detector_error_model, build_matching_graph
 from src.qec.sampling import diff_frames, sample_detection_volume
+from src.model.edges import apply_local_edge_corrections
 from src.model.predecoder import PreDecoder3D
 
 
 def load_checkpoint(path: Path) -> tuple:
     ckpt = torch.load(path, map_location="cpu", weights_only=True)
-    model = PreDecoder3D(depth=ckpt["depth"], width=ckpt["width"])
+    model = PreDecoder3D(depth=ckpt["depth"], width=ckpt["width"], out_channels=ckpt["out_channels"])
     model.load_state_dict(ckpt["model_state"])
     model.eval()
     return model, ckpt
@@ -63,11 +64,13 @@ def evaluate_at_distance(
 
     sampled = sample_detection_volume(circuit, distance, rounds, shots, seed)
     diff = diff_frames(sampled.volume)
+    edge_offsets = ckpt["edge_offsets"]
 
     with torch.no_grad():
         x = torch.from_numpy(diff).float().unsqueeze(1)
-        logits = model(x).squeeze(1)
-        correction = (torch.sigmoid(logits) > threshold).numpy().astype(np.uint8)
+        logits = model(x)  # (shots, C, T, H, W)
+        activation = (torch.sigmoid(logits) > threshold).numpy().astype(np.uint8)
+        correction = apply_local_edge_corrections(activation, edge_offsets)
 
     residual_volume = sampled.volume ^ correction
 
@@ -89,8 +92,9 @@ def evaluate_at_distance(
         for i in range(timing_shots):
             t0 = time.perf_counter()
             xi = torch.from_numpy(diff[i : i + 1]).float().unsqueeze(1)
-            logit_i = model(xi).squeeze(1)
-            corr_i = (torch.sigmoid(logit_i) > threshold).numpy().astype(np.uint8)
+            logit_i = model(xi)
+            act_i = (torch.sigmoid(logit_i) > threshold).numpy().astype(np.uint8)
+            corr_i = apply_local_edge_corrections(act_i, edge_offsets)
             resid_i = sampled.volume[i : i + 1] ^ corr_i
             resid_flat_i = resid_i[:, t_idx, row_idx, col_idx].astype(bool)[0]
             matcher.decode(resid_flat_i)

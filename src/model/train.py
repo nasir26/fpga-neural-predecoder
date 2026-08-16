@@ -30,7 +30,7 @@ if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 
 from src.qec.circuits import NoiseModel, build_rotated_surface_code_circuit
-from src.qec.dem import build_detector_error_model, build_error_incidence_matrix
+from src.qec.dem import build_error_channel_incidence, build_local_edge_catalog
 from src.qec.sampling import sample_training_shots
 from src.model.predecoder import PreDecoder3D, depth_for_receptive_field
 
@@ -77,10 +77,11 @@ def train(
 
     noise = NoiseModel.uniform_depolarizing(train_p)
     circuit = build_rotated_surface_code_circuit(distance, rounds, basis, noise)
-    dem = build_detector_error_model(circuit)
-    incidence = build_error_incidence_matrix(dem)
+    edge_offsets = build_local_edge_catalog(circuit)
+    num_channels = 1 + len(edge_offsets)
+    incidence = build_error_channel_incidence(circuit, edge_offsets)
 
-    model = PreDecoder3D(depth=depth, width=width)
+    model = PreDecoder3D(depth=depth, width=width, out_channels=num_channels)
     opt = torch.optim.Adam(model.parameters(), lr=lr)
     loss_fn = nn.BCEWithLogitsLoss()
 
@@ -102,10 +103,10 @@ def train(
                 break
             seed_counter += 1
             shots = sample_training_shots(
-                circuit, incidence, distance, rounds, this_chunk, seed=seed_counter
+                circuit, incidence, num_channels, distance, rounds, this_chunk, seed=seed_counter
             )
             x_all = torch.from_numpy(shots.diff).float().unsqueeze(1)
-            y_all = torch.from_numpy(shots.target).float().unsqueeze(1)
+            y_all = torch.from_numpy(shots.target).float()
 
             for start in range(0, this_chunk, batch_size):
                 end = min(start + batch_size, this_chunk)
@@ -136,6 +137,8 @@ def train(
                 "model_state": model.state_dict(),
                 "depth": depth,
                 "width": width,
+                "out_channels": num_channels,
+                "edge_offsets": edge_offsets,
                 "R": R,
                 "basis": basis,
                 "train_p": train_p,
@@ -145,6 +148,7 @@ def train(
         )
         with open(metrics_path, "w") as f:
             json.dump({"R": R, "width": width, "basis": basis, "train_p": train_p,
+                       "num_channels": num_channels, "edge_offsets": edge_offsets,
                        "shots_per_epoch": shots_per_epoch, "batch_size": batch_size,
                        "lr": lr, "seed": seed, "history": history}, f, indent=2)
 
