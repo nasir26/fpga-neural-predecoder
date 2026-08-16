@@ -94,3 +94,57 @@
 - **Reason:** these are implementation choices, not requirements stated
   verbatim in the plan; recorded here so Phase 2's model input shape
   assumptions have a documented source.
+
+## 2026-08-16: R=9 training deferred until R=5 validates the pipeline
+
+- **Decision:** run the full spec-default training recipe (2e6 shots/epoch,
+  20 epochs, batch 256, width 64) at R=5 (depth 2) now; defer R=9 (depth 4)
+  sizing until R=5 results are in hand.
+- **Alternatives considered:** shrinking the R=9 recipe now (fewer
+  epochs/shots/width); running the full R=9 recipe as an hours-long
+  background job immediately.
+- **Reason:** measured on this CPU (all 64 threads already used by default),
+  one training step is 37ms/batch at R=5 versus 438ms/batch at R=9. At the
+  spec's batch count (~7800 batches/epoch), that is roughly 1.7 hours total
+  for R=5 versus roughly 20 hours for R=9. This also appears to be a shared
+  machine (another process already on the one GPU present). Asked the user;
+  they chose to validate correctness cheaply on R=5 first rather than
+  committing ~20 hours of CPU time to an unvalidated pipeline.
+
+## 2026-08-16: ground-truth training target is XOR-parity of local fired DEM errors, not OR
+
+- **Decision:** the per-voxel training target is the XOR-parity (not
+  logical OR) of DEM error mechanisms that (a) actually fired in that shot
+  and (b) touch at most 2 detectors ("local" errors; see
+  `src.qec.dem.build_error_incidence_matrix`).
+- **Alternatives considered:** OR of all fired-error footprints, which is
+  simpler but was found to be subtly wrong: if two fired errors happen to
+  toggle the same detector, their contributions cancel under XOR (the actual
+  detector semantics) but OR would still mark that voxel as a target,
+  disagreeing with the real detection volume in that rare case. Including
+  all fired errors (not just weight <= 2 ones) in an XOR-parity target was
+  also considered, but that reduces exactly to the raw detection volume
+  itself (trivial, not a meaningful "local correction" target).
+- **Reason:** XOR-parity restricted to local errors is self-consistent
+  (never disagrees with the true detector semantics) and matches the
+  method's framing of removing a large fraction, not all, of detection
+  events; nonlocal (weight >= 3) fired errors are deliberately left for
+  PyMatching. Caught while implementing, not asked about; the fix follows
+  directly from how Stim defines detectors, so it is a correctness fix
+  rather than a preference tradeoff.
+
+## 2026-08-16: PreDecoder3D output head is a 1x1x1 conv, not a 3x3x3 conv
+
+- **Decision:** the final channel-projection layer of `PreDecoder3D`
+  (`src/model/predecoder.py`) uses `kernel_size=1`, not the `kernel_size=3`
+  used by the hidden layers.
+- **Alternatives considered:** kernel_size=3 for every layer, matching the
+  plan's blanket "kernel 3" description literally.
+- **Reason:** with a kernel-3 output layer, a depth-D stack of kernel-3
+  hidden layers plus a kernel-3 output layer gives receptive field
+  `2*D + 3`, not the plan's explicitly stated depth-2-gives-R=5,
+  depth-4-gives-R=9 correspondence (`2*D + 1`). Verified empirically via
+  input-gradient support before and after the fix (see
+  `tests/test_predecoder.py`). A 1x1x1 output head is also consistent with
+  the plan's own "output head" terminology (channel projection only, no
+  added spatial context).

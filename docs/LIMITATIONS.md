@@ -29,3 +29,24 @@ the reason it was made. Entries are added as each phase introduces them; see
   `NotImplementedError` for `kind="full25"`, so the interface is
   future-proofed but the implementation is deferred. Decided with the user
   on 2026-08-16.
+
+## Phase 2: pre-decoder model, CPU training
+
+- **Reduced training budget versus the reference recipe.** The reference
+  method (NVIDIA) trains with roughly 67M shots/epoch, 100 epochs, across 8
+  GPUs. This project trains on a single CPU with 2,000,000 shots/epoch and
+  20 epochs by default (`conf/default.yaml: training`), matching the plan's
+  own stated deliberate reduction. Measured on this host (64 threads, no
+  GPU): one training step is ~37ms/batch at R=5 (depth 2) but ~438ms/batch
+  at R=9 (depth 4), so even this reduced recipe is roughly 1.7 hours total
+  at R=5 and roughly 20 hours at R=9. R=5 was trained first to validate the
+  pipeline before committing to the much longer R=9 run; see
+  `docs/DECISIONS.md`.
+- **Ground-truth target covers a subset of detection events by
+  construction.** The training target is the XOR-parity of DEM error
+  mechanisms that fired and touch at most 2 detectors ("local" errors).
+  Errors touching 3+ detectors are deliberately excluded from the target and
+  left for PyMatching; this matches the method's framing of removing "a
+  large fraction," not all, of detection events, but means the pre-decoder
+  is architecturally incapable of ever fully resolving those nonlocal
+  events on its own. See `docs/DECISIONS.md`.

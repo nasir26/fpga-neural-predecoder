@@ -7,7 +7,9 @@ source code; the FPGA microarchitecture, quantization study, and latency
 model are original contributions. Author: Nasir Ali, C-DAC Noida.
 
 **Status: Phase 0 (environment and sanity) and Phase 1 (QEC data layer)
-complete. Phase 2 not started.** This README will gain a method summary,
+complete. Phase 2 (pre-decoder model, CPU training) code complete; the
+R=5 training run is in progress / pending on this host, R=9 sizing deferred
+until R=5 results are in.** This README will gain a method summary,
 results table, and reproduce instructions once there are results to report;
 see `claude_code_prompt_ising_fpga.md` in the repository root for the full
 phased plan this project follows, and `docs/LIMITATIONS.md` /
