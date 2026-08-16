@@ -47,3 +47,50 @@
   "no bitstream without being asked" rule; it is recorded here so the choice
   of Vitis HLS version (2021.2 vs 2023.2) can be made deliberately when
   Phase 4 starts, matching XRT 2023.1 and the installed platform file.
+
+## 2026-08-16: dropped "all four orientations" to X/Z basis only
+
+- **Decision:** implement only `rotated_memory_x` and `rotated_memory_z`
+  (Stim's two native rotated surface code tasks), not four orientations.
+- **Alternatives considered:** hand-building two additional rotated/reflected
+  circuit variants; adding 90-degree grid rotation as data augmentation in
+  Phase 2 training instead.
+- **Reason:** `stim.Circuit.generated` has no third/fourth built-in
+  orientation, and the rotated surface code's boundary symmetry means a
+  hand-built third/fourth variant is physically equivalent to X/Z memory
+  under relabeling. Asked the user; they chose to drop the requirement
+  rather than take on hand-built circuit risk for no new physical content.
+  Logged in `docs/LIMITATIONS.md`.
+
+## 2026-08-16: deferred the 25-parameter noise model to uniform-depolarizing only
+
+- **Decision:** `NoiseModel` (`src/qec/circuits.py`) implements only
+  `kind="uniform_depolarizing"` (a single `p` mapped onto Stim's four
+  built-in noise knobs). `kind="full25"` is defined with all 25 field names
+  reserved but raises `NotImplementedError`.
+- **Alternatives considered:** hand-constructing the full circuit-level noise
+  model now, with independent SPAM, idle, and all 15 two-qubit Pauli-channel
+  probabilities injected via `PAULI_CHANNEL_1`/`PAULI_CHANNEL_2`.
+- **Reason:** the full model needs a from-scratch circuit builder instead of
+  `stim.Circuit.generated`, a much larger scope with real correctness risk
+  (a subtle bug there would silently corrupt every downstream LER number).
+  Asked the user; they chose to defer it and keep Phase 1 on the
+  well-tested generator path. Logged in `docs/LIMITATIONS.md`.
+
+## 2026-08-16: detector grid mapping and diff-frame convention
+
+- **Decision:** the dense decoding volume has shape `(shots, T, H, W)` with
+  `T = rounds + 1`, `H = W = distance + 1`, built by dividing Stim's
+  even-integer detector `(x, y)` coordinates by 2. Verified empirically
+  (`d=3,5` at both bases) that this mapping is injective and its cell count
+  equals `circuit.num_detectors` exactly, so unused grid cells (the rotated
+  code's checkerboard gaps, and the half-density boundary layers at `t=0` and
+  `t=rounds`) are simply always zero.
+- **Decision:** `diff_frames` (`src/qec/sampling.py`) XORs consecutive
+  T-layers of the volume, with `diff[:,0] = volume[:,0]` (no earlier frame to
+  difference against) rather than dropping the first frame or zero-padding
+  it. This keeps `diff_frames` the same shape as `volume`, which matters for
+  Phase 2's `distance = rounds = R` receptive-field convention.
+- **Reason:** these are implementation choices, not requirements stated
+  verbatim in the plan; recorded here so Phase 2's model input shape
+  assumptions have a documented source.

@@ -6,11 +6,14 @@ work (see `NOTICE`). This is an independent implementation with no NVIDIA
 source code; the FPGA microarchitecture, quantization study, and latency
 model are original contributions. Author: Nasir Ali, C-DAC Noida.
 
-**Status: Phase 0 (environment and sanity) complete. Phase 1 not started.**
-This README will gain a method summary, results table, and reproduce
-instructions once there are results to report; see
-`claude_code_prompt_ising_fpga.md` in the repository root for the full phased
-plan this project follows.
+**Status: Phase 0 (environment and sanity) and Phase 1 (QEC data layer)
+complete. Phase 2 not started.** This README will gain a method summary,
+results table, and reproduce instructions once there are results to report;
+see `claude_code_prompt_ising_fpga.md` in the repository root for the full
+phased plan this project follows, and `docs/LIMITATIONS.md` /
+`docs/DECISIONS.md` for scope reductions made along the way (notably: X/Z
+basis only, no "four orientations"; uniform-depolarizing noise only, the
+25-parameter noise model is deferred).
 
 ## Environment
 
