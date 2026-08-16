@@ -1,0 +1,20 @@
+# Install with:
+#   pip install -r requirements.txt --extra-index-url https://download.pytorch.org/whl/cpu
+#
+# stim is pinned to 1.12.1 (not the latest 1.16.0) because this host's g++
+# (9.4.0) does not support -std=c++20, which stim >=1.13.0 requires to build.
+# 1.12.1 is the newest release that still builds/ships with -std=c++17 and has
+# a prebuilt manylinux cp38 wheel on this host's Python (3.8.10). See
+# docs/DECISIONS.md.
+stim==1.12.1
+pymatching==2.4.0
+numpy==1.24.4
+scipy==1.10.1
+torch==2.4.1+cpu
+matplotlib==3.7.5
+pandas==2.0.3
+pytest==8.3.5
+pyyaml==6.0.3
+tqdm==4.70.0
+# pyxrt is not pip-installable; it ships inside the local XRT install at
+# /opt/xilinx/xrt/python and is used via PYTHONPATH, not requirements.txt.
