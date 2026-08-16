@@ -1,0 +1,25 @@
+# Single source of truth for default parameters. Every bench/ script reads
+# this file and accepts CLI overrides on top of it; nothing here is
+# duplicated as a hardcoded default elsewhere.
+
+seed: 0
+
+code:
+  distance: 5
+  rounds: 5
+  basis: z  # "x" or "z"
+
+noise:
+  kind: uniform_depolarizing
+  p: 0.003
+  # kind: full25 is defined in src/qec/circuits.py's NoiseModel but not
+  # implemented yet; see docs/LIMITATIONS.md.
+
+sampling:
+  shots: 100000
+
+baseline:
+  timing_shots: 1000  # single-shot decode.() calls timed individually, batch_size=1
+
+metrics:
+  confidence: 0.95
