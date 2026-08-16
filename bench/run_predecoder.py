@@ -30,10 +30,26 @@ if str(REPO_ROOT) not in sys.path:
 
 from src.qec import metrics as qec_metrics
 from src.qec.circuits import NoiseModel, build_rotated_surface_code_circuit, detector_coords_to_grid_index
-from src.qec.dem import build_detector_error_model, build_matching_graph
+from src.qec.dem import build_channel_observable_map, build_detector_error_model, build_matching_graph
 from src.qec.sampling import diff_frames, sample_detection_volume
 from src.model.edges import apply_local_edge_corrections
 from src.model.predecoder import PreDecoder3D
+
+
+def local_correction_observable_parity(
+    activation: np.ndarray, obs_map: np.ndarray, grid_index: np.ndarray
+) -> np.ndarray:
+    """bool, shape (shots,): XOR-parity, over every applied (channel, voxel)
+    correction, of whether that specific local edge also flips the logical
+    observable (see src.qec.dem.build_channel_observable_map for why this
+    exists and must be composed with PyMatching's residual-decode result,
+    not dropped).
+    """
+    shots = activation.shape[0]
+    t_idx, row_idx, col_idx = grid_index[:, 0], grid_index[:, 1], grid_index[:, 2]
+    flat = activation[:, :, t_idx, row_idx, col_idx].astype(np.uint32)  # (shots, C, num_detectors)
+    parity = (flat.reshape(shots, -1) @ obs_map.flatten().astype(np.uint32)) % 2
+    return parity.astype(bool)
 
 
 def load_checkpoint(path: Path) -> tuple:
@@ -65,20 +81,27 @@ def evaluate_at_distance(
     sampled = sample_detection_volume(circuit, distance, rounds, shots, seed)
     diff = diff_frames(sampled.volume)
     edge_offsets = ckpt["edge_offsets"]
+    obs_map = build_channel_observable_map(circuit, edge_offsets)
+    grid_index = detector_coords_to_grid_index(circuit)
 
     with torch.no_grad():
         x = torch.from_numpy(diff).float().unsqueeze(1)
         logits = model(x)  # (shots, C, T, H, W)
         activation = (torch.sigmoid(logits) > threshold).numpy().astype(np.uint8)
         correction = apply_local_edge_corrections(activation, edge_offsets)
+        local_obs_parity = local_correction_observable_parity(activation, obs_map, grid_index)
 
     residual_volume = sampled.volume ^ correction
 
-    grid_index = detector_coords_to_grid_index(circuit)
     t_idx, row_idx, col_idx = grid_index[:, 0], grid_index[:, 1], grid_index[:, 2]
     residual_flat = residual_volume[:, t_idx, row_idx, col_idx].astype(bool)
 
-    predicted = matcher.decode_batch(residual_flat).astype(bool)
+    residual_predicted = matcher.decode_batch(residual_flat).astype(bool)
+    # The pre-decoder's own corrections carry their own logical-observable
+    # parity (some local edges flip the observable); compose it with
+    # PyMatching's residual-decode result rather than dropping it. See
+    # src.qec.dem.build_channel_observable_map.
+    predicted = residual_predicted ^ local_obs_parity.reshape(-1, 1)
     ler, ci_low, ci_high = qec_metrics.logical_error_rate(predicted, sampled.observables)
 
     density_before = float(sampled.flat_detectors.mean())
@@ -98,6 +121,7 @@ def evaluate_at_distance(
             resid_i = sampled.volume[i : i + 1] ^ corr_i
             resid_flat_i = resid_i[:, t_idx, row_idx, col_idx].astype(bool)[0]
             matcher.decode(resid_flat_i)
+            _ = local_correction_observable_parity(act_i, obs_map, grid_index)  # part of the real per-shot cost
             t1 = time.perf_counter()
             elapsed[i] = t1 - t0
     mean_latency_us_per_shot = float(np.mean(elapsed) * 1e6)
