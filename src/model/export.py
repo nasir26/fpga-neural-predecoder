@@ -30,7 +30,12 @@ SPDX_HEADER = (
 
 def _format_c_array(name: str, dtype: str, values: np.ndarray) -> str:
     flat = values.flatten()
-    values_str = ", ".join(str(int(v)) for v in flat)
+    if dtype == "double":
+        # repr() round-trips exactly back to the same float64 (Python's
+        # float repr is the shortest string that reparses losslessly).
+        values_str = ", ".join(repr(float(v)) for v in flat)
+    else:
+        values_str = ", ".join(str(int(v)) for v in flat)
     # Wrap at a reasonable line length for readability, not required for compilation.
     wrapped_lines = []
     line = "    "
@@ -114,6 +119,14 @@ def export_hls_header(layers: List[GoldenLayer], precision: str, R: int, output_
         lines.append(f"constexpr double LAYER{i}_INPUT_SCALE = {layer.input_scale!r};")
         if layer.output_activation_scale is not None:
             lines.append(f"constexpr double LAYER{i}_OUTPUT_SCALE = {layer.output_activation_scale!r};")
+            # Per-channel requantization multiplier (weight_scale * input_scale /
+            # output_scale), consumed by the HLS kernel as a fixed-point
+            # (ap_fixed<48,4>) constant: true_value/output_scale ==
+            # acc_int * requant_scale, avoiding floating-point hardware in the
+            # actual datapath while staying within golden.py's own tolerance
+            # (see docs/DECISIONS.md, 2026-08-17 "fixed-point requant multiplier").
+            requant_scale = layer.weight_scale * layer.input_scale / layer.output_activation_scale
+            lines.append(_format_c_array(f"LAYER{i}_REQUANT_SCALE", "double", requant_scale))
         lines.append("")
 
     lines.append("} // namespace predecoder_weights")

@@ -65,6 +65,23 @@ def test_bin_roundtrip_reconstructs_exact_weights_and_biases(tmp_path):
         np.testing.assert_array_equal(b_reconstructed, layer.bias_int.astype(np.int32))
 
 
+def test_double_arrays_preserve_fractional_precision(tmp_path):
+    # Regression test: _format_c_array once did str(int(v)) unconditionally,
+    # silently truncating WEIGHT_SCALE/REQUANT_SCALE doubles like 0.26 or
+    # 2.03 to 0, 1, 2. Caught only once the HLS kernel actually computed
+    # with these values (see docs/DECISIONS.md, 2026-08-17).
+    layers = _make_layers()
+    export_hls_header(layers, precision="int8", R=5, output_dir=tmp_path)
+    header_text = (tmp_path / "weights_int8.h").read_text()
+
+    # At least one exported weight_scale value must be a genuine fraction,
+    # not truncated to a bare integer.
+    assert "." in header_text
+    for layer in layers:
+        for v in layer.weight_scale:
+            assert repr(float(v)) in header_text
+
+
 def test_different_precisions_give_different_sha256(tmp_path):
     layers_int8 = _make_layers("int8")
     layers_ternary = _make_layers("ternary")
