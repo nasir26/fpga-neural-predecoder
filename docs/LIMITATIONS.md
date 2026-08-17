@@ -74,3 +74,29 @@ the reason it was made. Entries are added as each phase introduces them; see
   `torch.set_num_threads(1)`. LER, SDR, and ler_reduction_factor were never
   affected by this; only mean_latency_us_per_shot/round. See
   `docs/DECISIONS.md`.
+
+## Phase 3: quantization and golden model
+
+- **The quantization study (contribution C1) is conducted on an FP32
+  baseline that does not itself beat PyMatching alone.** This was a
+  deliberate, explicit choice, confirmed with the user before starting
+  Phase 3: the quantization question (does INT8/INT4/ternary cost accuracy
+  relative to FP32) is answered cleanly and honestly regardless of whether
+  that FP32 baseline is itself a net win over the Phase 1 baseline. It is
+  not yet a net win (see the Phase 2 entries above). The quantization
+  sweep's own finding is real and useful on its own terms: INT8 and ternary
+  are within noise of FP32, INT4 shows a consistent ~8-10% relative LER
+  regression. See `docs/DECISIONS.md`, 2026-08-17.
+- **"Zero tolerance" for golden.py vs the QAT PyTorch model is defined on
+  the correction decision (exact), not literal bit-equality of the
+  underlying float values (1e-6 tolerance instead).** Floating-point
+  addition is not associative, so PyTorch's BLAS-based `F.conv3d` and
+  golden.py's tensordot-based integer accumulation cannot be made literally
+  bit-identical without abandoning `F.conv3d` (and the batched-training
+  speed it provides) entirely. Decided with the user; see
+  `docs/DECISIONS.md`, 2026-08-17.
+- **Bias must be quantized to an integer at the accumulator's implicit
+  scale**, not kept at full float precision as first implemented: a real
+  integer accumulator cannot add an arbitrary-precision float bias. Fixed
+  before this caused any incorrect result to be reported; see
+  `docs/DECISIONS.md`.

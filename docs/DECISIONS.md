@@ -362,3 +362,33 @@
   Asked the user rather than silently picking an interpretation of "zero
   tolerance" that conflicts with how floating-point arithmetic actually
   works; they chose this over rewriting QAT training in pure-integer torch.
+
+## 2026-08-17: Phase 3 quantization sweep results (contribution C1)
+
+- QAT fine-tuning: 3 epochs, 500,000 shots/epoch, from the R=5 FP32
+  checkpoint, one run per precision (int8, int4, ternary). Final losses:
+  int8 0.00221, int4 0.00238, ternary 0.00271 (fp32's own final training
+  loss was 0.00222; all three stayed close to it).
+- Sweep at d=5,7, p=0.003, threshold=0.5, 100,000 shots (`bench/sweep_precision.py`,
+  `results/metrics/quantization_sweep.json`):
+
+  | precision | d=5 LER | d=5 SDR | d=7 LER | d=7 SDR |
+  |---|---|---|---|---|
+  | fp32     | 0.01292 | 0.550 | 0.06593 | 0.507 |
+  | int8     | 0.01258 | 0.552 | 0.06515 | 0.508 |
+  | int4     | 0.01424 | 0.548 | 0.07124 | 0.504 |
+  | ternary  | 0.01303 | 0.526 | 0.06435 | 0.486 |
+
+  INT8 is within noise of FP32 (slightly better, if anything: QAT
+  fine-tuning's extra gradient steps likely account for this more than
+  quantization itself). Ternary is close to FP32 on LER with a real SDR
+  drop. INT4 is the only precision with a clear, consistent LER regression
+  (~8-10% relative at both distances). This is a genuine, clean C1 result
+  in its own right: quantization down to INT8, and even ternary, costs
+  little to nothing relative to the FP32 baseline, even though that FP32
+  baseline itself does not yet beat plain PyMatching (see the Phase 2
+  entries above); the two findings are independent and both honestly
+  reported.
+- HLS weight headers and binary blobs exported for all three precisions to
+  `hls/weights_{precision}.h` / `.bin`, with SHA-256 in both the header
+  comment and `results/metrics/quantization_sweep.json`.
