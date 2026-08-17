@@ -309,3 +309,24 @@
   ler_reduction_factor are unaffected and are correct. Flagged for a later
   pass (Phase 6 benchmarking, or sooner if latency numbers are needed
   before then).
+
+## 2026-08-17: timing loop measured thread contention, not real latency
+
+- **Root cause found:** two duplicate `bench/run_predecoder.py` background
+  processes ended up running simultaneously (an artifact of this session's
+  background-job handling, not the code), pushing system load to ~92-99 on
+  a 64-core machine. Under that load, re-running the exact same evaluation
+  in isolation gave normal timing (967us/shot, matching component-level
+  micro-benchmarks); the duplicate-process run gave >100ms/shot. Confirmed
+  by killing the duplicates and re-running cleanly.
+- **Underlying issue, fixed regardless:** even without duplicate processes,
+  the single-shot timing loop was letting PyTorch spin up its full 64-thread
+  parallel region for every single tiny (batch=1) model forward call. A
+  real single-shot deployment would never do this (64-way parallelism for
+  one small tensor is pure overhead, and it is also what made the loop so
+  vulnerable to contention from anything else running concurrently).
+  `bench/run_predecoder.py`'s timing loop now pins `torch.set_num_threads(1)`
+  for its duration (restored afterward), which both fixes the contention
+  sensitivity and makes the measured number mean what it claims to mean:
+  realistic single-shot latency, not artificially-parallelized-then-starved
+  latency.

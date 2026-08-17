@@ -15,9 +15,9 @@
   "syndrome_density_after": 0.022703660714285714,
   "syndrome_density_reduction": 0.50688371696152,
   "timing_shots": 1000,
-  "mean_latency_us_per_shot": 126857.66359115952,
-  "mean_latency_us_per_round": 18122.523370165647,
+  "mean_latency_us_per_shot": 4058.56195022352,
+  "mean_latency_us_per_round": 579.7945643176457,
   "baseline_ler": 0.00167,
   "ler_reduction_factor": 0.025329895343546186,
-  "speedup_vs_baseline": 0.00013521167365749564
+  "speedup_vs_baseline": 0.004226284388610988
 }

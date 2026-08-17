@@ -63,11 +63,14 @@ the reason it was made. Entries are added as each phase introduces them; see
   convolutional distance-generalisation property the method is supposed to
   have. Full numbers and the diagnosis trail are in `docs/DECISIONS.md`
   and `results/metrics/predecoder_d{5,7,9,11}_R5_p0.003.json`.
-- **The evaluation script's per-shot latency numbers are not trustworthy
-  yet.** `bench/run_predecoder.py`'s timing loop reports mean per-shot
-  latencies over 100ms at `timing_shots=1000`, but isolated component
-  benchmarks (model forward, matching decode, edge correction, observable
-  parity) total roughly 1-2ms combined. This is a benchmarking-harness bug,
-  not a real latency measurement; not yet root-caused. LER, SDR, and
-  ler_reduction_factor in the same result files are unaffected. See
+- **The evaluation script's per-shot latency numbers required a fix to be
+  trustworthy.** `bench/run_predecoder.py`'s timing loop was letting
+  PyTorch use all 64 threads for every tiny single-shot (batch=1) forward
+  call, which is unrealistic for a real single-shot deployment and made the
+  measurement highly sensitive to any concurrent load on the machine (an
+  accidental duplicate background run pushed load to ~92-99 on this 64-core
+  host and inflated the reading to >100ms/shot; the same evaluation in
+  isolation gave ~1ms/shot). Fixed by pinning the timing loop to
+  `torch.set_num_threads(1)`. LER, SDR, and ler_reduction_factor were never
+  affected by this; only mean_latency_us_per_shot/round. See
   `docs/DECISIONS.md`.

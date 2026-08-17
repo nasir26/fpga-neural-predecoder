@@ -108,22 +108,34 @@ def evaluate_at_distance(
     density_after = float(residual_flat.mean())
     sdr = qec_metrics.syndrome_density_reduction(density_before, density_after)
 
-    # Single-shot timing: model forward (per shot, batch=1) + matching.decode()
-    matcher.decode(residual_flat[0])  # warm up
-    elapsed = np.empty(timing_shots, dtype=np.float64)
-    with torch.no_grad():
-        for i in range(timing_shots):
-            t0 = time.perf_counter()
-            xi = torch.from_numpy(diff[i : i + 1]).float().unsqueeze(1)
-            logit_i = model(xi)
-            act_i = (torch.sigmoid(logit_i) > threshold).numpy().astype(np.uint8)
-            corr_i = apply_local_edge_corrections(act_i, edge_offsets)
-            resid_i = sampled.volume[i : i + 1] ^ corr_i
-            resid_flat_i = resid_i[:, t_idx, row_idx, col_idx].astype(bool)[0]
-            matcher.decode(resid_flat_i)
-            _ = local_correction_observable_parity(act_i, obs_map, grid_index)  # part of the real per-shot cost
-            t1 = time.perf_counter()
-            elapsed[i] = t1 - t0
+    # Single-shot timing: model forward (per shot, batch=1) + matching.decode().
+    # Pinned to 1 torch thread: a real single-shot deployment would not spin
+    # up a 64-way parallel region for one 6x6x6-ish tensor, and doing so here
+    # measured as thread-pool contention overhead (>100ms/shot) rather than
+    # real compute, especially when this loop runs back-to-back with the
+    # full-batch inference above, which does want all threads. See
+    # docs/DECISIONS.md, 2026-08-17 "timing loop measured thread contention,
+    # not real latency".
+    original_num_threads = torch.get_num_threads()
+    torch.set_num_threads(1)
+    try:
+        matcher.decode(residual_flat[0])  # warm up
+        elapsed = np.empty(timing_shots, dtype=np.float64)
+        with torch.no_grad():
+            for i in range(timing_shots):
+                t0 = time.perf_counter()
+                xi = torch.from_numpy(diff[i : i + 1]).float().unsqueeze(1)
+                logit_i = model(xi)
+                act_i = (torch.sigmoid(logit_i) > threshold).numpy().astype(np.uint8)
+                corr_i = apply_local_edge_corrections(act_i, edge_offsets)
+                resid_i = sampled.volume[i : i + 1] ^ corr_i
+                resid_flat_i = resid_i[:, t_idx, row_idx, col_idx].astype(bool)[0]
+                matcher.decode(resid_flat_i)
+                _ = local_correction_observable_parity(act_i, obs_map, grid_index)  # part of the real per-shot cost
+                t1 = time.perf_counter()
+                elapsed[i] = t1 - t0
+    finally:
+        torch.set_num_threads(original_num_threads)
     mean_latency_us_per_shot = float(np.mean(elapsed) * 1e6)
 
     return {
