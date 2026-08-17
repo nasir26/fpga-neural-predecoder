@@ -7,9 +7,11 @@ output conv) as src/model/predecoder.py, but each hidden layer's weights are
 fake-quantized (straight-through estimator, see src/model/quantize.py) on
 every forward pass, and post-ReLU activations are fake-quantized to unsigned
 8-bit using a scale calibrated by a running max over training batches.
-Biases are kept at full precision: they are a small per-channel additive
-term, not a weight multiplied many times, so hardware cost of keeping them
-wide is negligible (see docs/DECISIONS.md).
+Biases are fake-quantized too, to each layer's accumulator scale
+(weight_scale_c * input_scale): a real integer accumulator can only add an
+integer bias at that implicit scale, not an arbitrary-precision float, and
+this must match src/model/golden.py's integer bias handling exactly for the
+zero-tolerance golden-vs-torch test to pass (see docs/DECISIONS.md).
 
 Starts QAT fine-tuning from an already-trained FP32 PreDecoder3D's weights
 (via from_fp32), matching the plan's "quantization-aware fine-tuning for a
@@ -22,7 +24,7 @@ import torch.nn as nn
 import torch.nn.functional as F
 
 from src.model.predecoder import PreDecoder3D
-from src.model.quantize import fake_quantize_activation, fake_quantize_weight
+from src.model.quantize import fake_quantize_activation, fake_quantize_bias, fake_quantize_weight, quantize_weight_per_channel
 
 
 class QATPreDecoder3D(nn.Module):
@@ -75,9 +77,14 @@ class QATPreDecoder3D(nn.Module):
         return qat
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
+        input_scale = 1.0  # the raw input is exact 0/1, no quantization loss
         for i, conv in enumerate(self.hidden_convs):
+            weight_scale = quantize_weight_per_channel(
+                conv.weight.detach().cpu().numpy(), self.precision
+            ).scales
             w_q = fake_quantize_weight(conv.weight, self.precision)
-            x = F.conv3d(x, w_q, conv.bias, padding=1)
+            b_q = fake_quantize_bias(conv.bias, weight_scale, input_scale)
+            x = F.conv3d(x, w_q, b_q, padding=1)
             x = F.relu(x)
             if self.training:
                 with torch.no_grad():
@@ -87,7 +94,12 @@ class QATPreDecoder3D(nn.Module):
                     )
             scale = (self.act_running_max[i] / 255).clamp(min=1e-9).item()
             x = fake_quantize_activation(x, scale)
+            input_scale = scale
 
+        out_weight_scale = quantize_weight_per_channel(
+            self.out_conv.weight.detach().cpu().numpy(), self.precision
+        ).scales
         w_out_q = fake_quantize_weight(self.out_conv.weight, self.precision)
-        logits = F.conv3d(x, w_out_q, self.out_conv.bias, padding=0)
+        b_out_q = fake_quantize_bias(self.out_conv.bias, out_weight_scale, input_scale)
+        logits = F.conv3d(x, w_out_q, b_out_q, padding=0)
         return logits

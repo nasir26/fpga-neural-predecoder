@@ -129,3 +129,31 @@ class _FakeQuantActivationSTE(torch.autograd.Function):
 def fake_quantize_activation(x: torch.Tensor, scale: float) -> torch.Tensor:
     """Unsigned 8-bit fake-quant for post-ReLU activations (x must be >= 0)."""
     return _FakeQuantActivationSTE.apply(x, scale)
+
+
+def quantize_bias(bias: np.ndarray, weight_scale: np.ndarray, input_scale: float) -> Tuple[np.ndarray, np.ndarray]:
+    """A real integer accumulator can only add an integer bias, at the
+    accumulator's implicit scale (weight_scale_c * input_scale) for output
+    channel c; it cannot add an arbitrary-precision float. Returns
+    (bias_int, bias_dequantized), both shape (out_channels,).
+    """
+    accumulator_scale = weight_scale * input_scale
+    bias_int = round_half_up(bias / accumulator_scale).astype(np.int64)
+    bias_dequantized = (bias_int.astype(np.float64) * accumulator_scale).astype(np.float32)
+    return bias_int, bias_dequantized
+
+
+class _FakeQuantBiasSTE(torch.autograd.Function):
+    @staticmethod
+    def forward(ctx, bias: torch.Tensor, weight_scale: np.ndarray, input_scale: float) -> torch.Tensor:
+        bias_np = bias.detach().cpu().numpy()
+        _, deq = quantize_bias(bias_np, weight_scale, input_scale)
+        return torch.from_numpy(deq).to(bias.device, bias.dtype)
+
+    @staticmethod
+    def backward(ctx, grad_output):
+        return grad_output, None, None
+
+
+def fake_quantize_bias(bias: torch.Tensor, weight_scale: np.ndarray, input_scale: float) -> torch.Tensor:
+    return _FakeQuantBiasSTE.apply(bias, weight_scale, input_scale)

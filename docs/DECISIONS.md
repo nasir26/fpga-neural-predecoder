@@ -330,3 +330,35 @@
   sensitivity and makes the measured number mean what it claims to mean:
   realistic single-shot latency, not artificially-parallelized-then-starved
   latency.
+
+## 2026-08-17: bias must be quantized too, and "zero tolerance" means the decision, not the float bits
+
+- **Finding while building golden.py:** the first cut of `QATPreDecoder3D`
+  kept biases at full float precision (reasoning: a small per-channel
+  additive term, cheap to keep wide in hardware). That is fine for a real
+  accumulator with enough guard bits, but it makes `golden.py` (a genuine
+  integer datapath) unable to match the QAT model's forward pass at all,
+  since an integer accumulator cannot add an arbitrary-precision float.
+  Fixed by quantizing bias to each layer's accumulator scale
+  (`weight_scale_c * input_scale`) in both `src/model/quantize.py`
+  (`quantize_bias`/`fake_quantize_bias`) and `src/model/qat.py`'s forward
+  pass, so both sides use the same integer bias.
+- **Finding while writing test_golden_vs_torch.py:** even with matching
+  integer bias handling and even upcasting the QAT model to float64,
+  `golden.py`'s NumPy integer convolution and PyTorch's `F.conv3d` do not
+  produce literally bit-identical floats (residual ~1e-7 relative at the
+  real R5 model's width=64 scale). This is floating-point non-associativity:
+  torch's BLAS-based convolution and golden.py's tensordot-based
+  accumulation sum the same terms in a different order, and float addition
+  is not associative. No amount of added precision removes this; only
+  reimplementing QAT training itself in pure-integer torch tensors would
+  (abandoning `F.conv3d` and the batched-training speed it gives).
+- **Decision:** "zero tolerance" is enforced on the correction *decision*
+  (sign of the final accumulator: exactly what gets applied to the
+  syndrome), which is genuinely zero-tolerance and is what correctness
+  actually depends on. The underlying float values are compared at 1e-6
+  relative/absolute tolerance (observed residual is ~1e-7 at real model
+  scale, so this has a comfortable margin) rather than literal bit-equality.
+  Asked the user rather than silently picking an interpretation of "zero
+  tolerance" that conflicts with how floating-point arithmetic actually
+  works; they chose this over rewriting QAT training in pure-integer torch.
