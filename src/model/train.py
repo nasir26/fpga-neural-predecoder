@@ -58,37 +58,40 @@ def parse_args() -> argparse.Namespace:
     return parser.parse_args()
 
 
-def train(
+def build_training_circuit(R: int, basis: str, train_p: float):
+    """Returns (circuit, edge_offsets, num_channels, incidence) for
+    distance=rounds=R. Shared by FP32 training and QAT fine-tuning so both
+    use the exact same channel catalog and incidence matrix.
+    """
+    noise = NoiseModel.uniform_depolarizing(train_p)
+    circuit = build_rotated_surface_code_circuit(R, R, basis, noise)
+    edge_offsets = build_local_edge_catalog(circuit)
+    num_channels = 1 + len(edge_offsets)
+    incidence = build_error_channel_incidence(circuit, edge_offsets)
+    return circuit, edge_offsets, num_channels, incidence
+
+
+def run_training_epochs(
+    model: nn.Module,
+    opt: torch.optim.Optimizer,
+    circuit,
+    incidence,
+    num_channels: int,
     R: int,
-    width: int,
     epochs: int,
     shots_per_epoch: int,
     batch_size: int,
     chunk_shots: int,
-    lr: float,
-    basis: str,
-    train_p: float,
     seed: int,
-    models_dir: Path,
-    metrics_path: Path,
-) -> dict:
-    depth = depth_for_receptive_field(R)
-    distance = rounds = R
-
-    noise = NoiseModel.uniform_depolarizing(train_p)
-    circuit = build_rotated_surface_code_circuit(distance, rounds, basis, noise)
-    edge_offsets = build_local_edge_catalog(circuit)
-    num_channels = 1 + len(edge_offsets)
-    incidence = build_error_channel_incidence(circuit, edge_offsets)
-
-    model = PreDecoder3D(depth=depth, width=width, out_channels=num_channels)
-    opt = torch.optim.Adam(model.parameters(), lr=lr)
+    on_epoch_end=None,
+) -> list:
+    """Shared chunked-streaming training loop: fresh iid shots per chunk,
+    never reusing a shot, used by both FP32 training (train()) and QAT
+    fine-tuning (src.model.train_qat.fine_tune). on_epoch_end(epoch, loss,
+    shots_done, epoch_time_s), if given, is called after each epoch (for
+    checkpointing / metrics writing, which differ between the two callers).
+    """
     loss_fn = nn.BCEWithLogitsLoss()
-
-    models_dir.mkdir(parents=True, exist_ok=True)
-    metrics_path.parent.mkdir(parents=True, exist_ok=True)
-    checkpoint_path = models_dir / f"predecoder_R{R}.pt"
-
     history = []
     n_chunks = -(-shots_per_epoch // chunk_shots)  # ceil div
     seed_counter = seed * 1_000_000
@@ -103,7 +106,7 @@ def train(
                 break
             seed_counter += 1
             shots = sample_training_shots(
-                circuit, incidence, num_channels, distance, rounds, this_chunk, seed=seed_counter
+                circuit, incidence, num_channels, R, R, this_chunk, seed=seed_counter
             )
             x_all = torch.from_numpy(shots.diff).float().unsqueeze(1)
             y_all = torch.from_numpy(shots.target).float()
@@ -123,15 +126,41 @@ def train(
 
         epoch_loss = float(np.mean(epoch_losses))
         epoch_time = time.time() - epoch_t0
-        record = {
-            "epoch": epoch,
-            "loss": epoch_loss,
-            "shots": shots_done,
-            "epoch_time_s": epoch_time,
-        }
-        history.append(record)
+        history.append({"epoch": epoch, "loss": epoch_loss, "shots": shots_done, "epoch_time_s": epoch_time})
         print(f"epoch {epoch}: loss={epoch_loss:.5f} shots={shots_done} time={epoch_time:.1f}s", flush=True)
+        if on_epoch_end is not None:
+            on_epoch_end(epoch, epoch_loss, shots_done, epoch_time)
 
+    return history
+
+
+def train(
+    R: int,
+    width: int,
+    epochs: int,
+    shots_per_epoch: int,
+    batch_size: int,
+    chunk_shots: int,
+    lr: float,
+    basis: str,
+    train_p: float,
+    seed: int,
+    models_dir: Path,
+    metrics_path: Path,
+) -> dict:
+    depth = depth_for_receptive_field(R)
+    circuit, edge_offsets, num_channels, incidence = build_training_circuit(R, basis, train_p)
+
+    model = PreDecoder3D(depth=depth, width=width, out_channels=num_channels)
+    opt = torch.optim.Adam(model.parameters(), lr=lr)
+
+    models_dir.mkdir(parents=True, exist_ok=True)
+    metrics_path.parent.mkdir(parents=True, exist_ok=True)
+    checkpoint_path = models_dir / f"predecoder_R{R}.pt"
+    history: list = []
+
+    def on_epoch_end(epoch, epoch_loss, shots_done, epoch_time):
+        history.append({"epoch": epoch, "loss": epoch_loss, "shots": shots_done, "epoch_time_s": epoch_time})
         torch.save(
             {
                 "model_state": model.state_dict(),
@@ -151,6 +180,11 @@ def train(
                        "num_channels": num_channels, "edge_offsets": edge_offsets,
                        "shots_per_epoch": shots_per_epoch, "batch_size": batch_size,
                        "lr": lr, "seed": seed, "history": history}, f, indent=2)
+
+    run_training_epochs(
+        model, opt, circuit, incidence, num_channels, R, epochs, shots_per_epoch,
+        batch_size, chunk_shots, seed, on_epoch_end=on_epoch_end,
+    )
 
     return {"model": model, "history": history, "checkpoint_path": str(checkpoint_path)}
 
