@@ -100,3 +100,30 @@ the reason it was made. Entries are added as each phase introduces them; see
   integer accumulator cannot add an arbitrary-precision float bias. Fixed
   before this caused any incorrect result to be reported; see
   `docs/DECISIONS.md`.
+
+## Phase 4: HLS kernel
+
+- **The kernel is scoped to a single fixed distance, d=5**, not runtime-
+  general across distances, because the observable-parity lookup table is
+  not (yet, verifiably) a fixed geometric rule independent of distance; see
+  `docs/DECISIONS.md`, 2026-08-17. The CNN datapath itself is architecturally
+  distance-general.
+- **This is a first-pass, correctness-prioritized synthesis, not a
+  resource-optimal one.** Two pragma choices caused csynth to run for hours
+  without converging (fully-unrolled 110,592-way MAC parallelism; a fully
+  array-partitioned, data-dependently-indexed correction buffer forced to
+  II=1) before being diagnosed and fixed; see `docs/DECISIONS.md` for the
+  full story. With both fixed, csynth completes in about an hour and all
+  loop constraints are satisfied, but the resulting design uses
+  **1159% of the U55C's BRAM_18K budget** (46,716 used vs 4,032 available)
+  and has per-shot latency of 0.35-0.48 ms, roughly 350-500x the paper's own
+  ~1us aspirational target (no shot-level pipelining is implemented; each
+  shot runs mostly-sequentially through the 4 DATAFLOW stages). Both numbers
+  are real, automatically parsed from the csynth report
+  (`scripts/record_hls_metrics.py`, `results/metrics/hls_int8.json`), not
+  invented or hidden. Bringing BRAM under budget and closing the latency gap
+  (shot-level pipelining, narrower array partitioning, more output-channel
+  resource sharing) is follow-up work, not yet done.
+- **Cosim (RTL simulation against the same test vectors) was run but its
+  result is not yet recorded here**; see the conversation / a later
+  `docs/DECISIONS.md` entry for its outcome once available.

@@ -27,11 +27,19 @@ static bool read_vector_line(FILE* f, ap_uint<512>& syndrome_beat, ap_uint<216>&
 }
 
 int main() {
-    const char* path = "tests/vectors/vectors_int8.txt";
-    FILE* f = fopen(path, "r");
-    if (!f) {
-        path = "../../../../tests/vectors/vectors_int8.txt";  // Vitis HLS project working dir
-        f = fopen(path, "r");
+    const char* candidates[] = {
+        "tests/vectors/vectors_int8.txt",              // standalone g++, cwd = repo root: full 200-vector set
+        "../../../../tests/vectors/vectors_int8.txt",  // vitis_hls csim working dir, full set
+        "../vectors_int8_small.txt",                    // vitis_hls: add_files -tb copies it alongside the tb source
+        "vectors_int8_small.txt",
+        "../vectors_int8.txt",
+        "vectors_int8.txt",
+    };
+    const char* path = nullptr;
+    FILE* f = nullptr;
+    for (const char* c : candidates) {
+        f = fopen(c, "r");
+        if (f) { path = c; break; }
     }
     if (!f) {
         printf("FAIL: could not open test vectors file\n");

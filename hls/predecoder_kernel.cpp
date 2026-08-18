@@ -61,13 +61,13 @@ CONV_T:
     CONV_EMIT:
         for (int y = 0; y < H; y++) {
             for (int x = 0; x < W; x++) {
-#pragma HLS PIPELINE II=1
                 act_t window[3][3][3][IN_C];
                 form_window(fb, emit_t, y, x, T, H, W, window);
 
                 ActVec out;
             OC_LOOP:
                 for (int oc = 0; oc < 64; oc++) {
+#pragma HLS PIPELINE II=1
                     acc_t acc = 0;
                 MAC:
                     for (int dz = 0; dz < 3; dz++)
@@ -117,15 +117,23 @@ OUT_LOOP:
 }
 
 static void edge_correction(hls::stream<Logits>& in_stream, ap_uint<512>& correction_beat) {
+    // Deliberately NOT array-partitioned and NOT pipelined at II=1: each
+    // voxel's edge channels can write to voxels reached by other iterations
+    // too (the offset partner), a genuine cross-iteration read-modify-write
+    // hazard on shared storage. Forcing II=1 here previously made synthesis
+    // try to build full-width muxes for every data-dependent write across
+    // overlapping in-flight iterations, which did not converge in
+    // reasonable time (see docs/DECISIONS.md). This stage runs once per
+    // shot and is not the throughput bottleneck (the conv layers are), so a
+    // plain sequential loop over a normal BRAM-mapped array is the right
+    // tradeoff here, not a resource-optimal one.
     ap_uint<1> correction[T][H][W];
-#pragma HLS ARRAY_PARTITION variable=correction complete dim=0
     ap_uint<1> obs_parity = 0;
 
 INIT:
     for (int t = 0; t < T; t++)
         for (int y = 0; y < H; y++)
             for (int x = 0; x < W; x++) {
-#pragma HLS UNROLL
                 correction[t][y][x] = 0;
             }
 
@@ -133,7 +141,6 @@ EC_LOOP:
     for (int t = 0; t < T; t++) {
         for (int y = 0; y < H; y++) {
             for (int x = 0; x < W; x++) {
-#pragma HLS PIPELINE II=1
                 Logits lg = in_stream.read();
                 int flat_idx = (t * H + y) * W + x;
 
@@ -174,7 +181,6 @@ PACK:
     for (int t = 0; t < T; t++)
         for (int y = 0; y < H; y++)
             for (int x = 0; x < W; x++) {
-#pragma HLS UNROLL
                 int idx = (t * H + y) * W + x;
                 beat[idx] = correction[t][y][x];
             }

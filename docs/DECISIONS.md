@@ -462,3 +462,80 @@
   `scripts/export_test_vectors.py`), verified via a standalone g++ compile
   of `hls/tb_predecoder.cpp` (fast iteration; full Vitis HLS csim/csynth is
   the next step).
+
+## 2026-08-17/18: two real csynth runaways, both from over-aggressive pragmas, both fixed
+
+- **First runaway:** the initial kernel fully unrolled both the per-voxel
+  output-channel loop (`OC_LOOP`, 64-way) and the inner MAC reduction
+  (kernel positions x input channels, up to 27*64=1728-way for layer 1),
+  compounding to a ~110,592-way fully-parallel MAC unit demanded for a
+  single II=1 pixel. csynth's "Compiling Optimization and Transform" phase
+  alone ran past 3800 CPU-seconds (over an hour of wall time) without
+  finishing; killed after confirming via `ps` it was still actively
+  computing (not hung) but clearly not converging in reasonable time. Fixed
+  by moving `#pragma HLS PIPELINE II=1` from the per-pixel (y,x) loop down
+  to the `OC_LOOP` itself: output channels are now computed sequentially
+  (pipelined at II=1 per channel, not all 64 in parallel), while the MAC
+  reduction stays fully unrolled per channel. Verified this didn't change
+  results (pragmas are no-ops for a plain g++ build; re-ran the 200-vector
+  g++ testbench, still bit-exact) before re-attempting csynth. The retry's
+  "Compiling Optimization and Transform" phase dropped to ~315s, then
+  ~180s: real confirmation the fix worked, not a guess.
+- **Second runaway:** with the first fix in place, csynth reached
+  `edge_correction`'s main loop and again ran for hours (crossed midnight;
+  killed after seeing 775+ CPU-minutes with no forward progress signal).
+  Root cause: `correction[T][H][W]` was fully array-partitioned (216
+  individual registers) AND accessed with *data-dependent* indices
+  (`correction[tt][yy][xx]` where tt/yy/xx depend on which local-edge
+  channel fired) AND the enclosing loop demanded II=1. That combination
+  forces the tool to build a full-width mux for every one of ~2800
+  variable-indexed writes per shot, with additional cross-iteration
+  read/write-hazard analysis, since a later pipelined iteration can target
+  the same storage a concurrently in-flight iteration wrote. Fixed by
+  removing the array partition (letting `correction` be a normal
+  BRAM-mapped array) and removing the forced II=1 (edge_correction runs
+  once per shot and is not the throughput bottleneck; the conv layers are).
+  The retry succeeded, and the resulting *natural* schedule the tool found
+  is Final II=38 for that loop (not II=1, but converged in about 2
+  minutes, not hours) -- a slower, but real and immediately obtained,
+  answer, which is the right tradeoff here.
+- **General lesson, recorded because it will recur if forgotten:** forcing
+  II=1 on a loop is only free when the loop's body has no cross-iteration
+  dependency on shared, indexable storage. Where it does (variable-indexed
+  reads/writes to a partitioned array), forcing II=1 anyway does not fail
+  cleanly -- it can make the scheduler search for an exponentially long
+  time before either succeeding or (in practice, within any reasonable
+  session) not finishing at all. The fix in both cases was the same shape:
+  push aggressive pipelining down to a loop level where the parallelism is
+  actually free (independent output channels; independent kernel-position
+  MACs), and let the tool pick a realistic, unforced II wherever iterations
+  can genuinely conflict.
+
+## 2026-08-18: csynth completed; real (uneven) resource and latency numbers
+
+- `hls/predecoder_kernel.cpp`, INT8, target `xcu55c-fsvh2892-2L-e`
+  (Alveo U55C part), `create_clock -period 10` (100 MHz target): "All loop
+  constraints were satisfied", Estimated Fmax 136.99 MHz (i.e. the design
+  can run faster than the 100 MHz target). Parsed automatically from the
+  csynth XML by `scripts/record_hls_metrics.py` into
+  `results/metrics/hls_int8.json` (never hand-transcribed):
+  - Latency: 35,336 cycles best/avg case, 48,077 cycles worst case (0.353 ms
+    / 0.481 ms at the 100 MHz target clock).
+  - DSP 1,219 / 9,024 (13.5%), FF 254,875 / 2,607,360 (9.8%),
+    LUT 428,939 / 1,303,680 (32.9%), URAM 0 / 960 (0%).
+  - **BRAM_18K: 46,716 used against 4,032 available -- 1159%, over 11x the
+    real budget.** This design, as synthesized, would not fit on the actual
+    device. Recorded honestly, not hidden: this is a first-pass,
+    correctness-prioritized kernel (see the pragma-runaway entries above),
+    not yet resource-tuned. The BRAM overshoot traces to weight/window array
+    partitioning decisions made to support the (already reduced from
+    110,592-way) per-channel MAC parallelism; bringing it under budget is
+    follow-up work (narrower partitioning, more resource sharing across
+    output channels), not yet done.
+  - **Latency is far from the paper's own ~1us aspirational target**
+    (0.35-0.48 ms per shot, roughly 350-500x over): the kernel currently
+    processes one shot mostly-sequentially through 4 DATAFLOW stages with
+    no shot-level pipelining (`DataflowPipelineThroughput` interval
+    8,697-48,035 cycles). This is the honest, current state of contribution
+    C4's latency budget, not a claimed result; the paper must say so
+    plainly rather than imply the aspirational target was met.

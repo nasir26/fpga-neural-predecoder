@@ -7,6 +7,7 @@ models/
 .vscode/
 *.log
 hls/proj_*/
+hls/predecoder_proj/
 hls/*.log
 hls/vitis_hls.log
 host/*.o

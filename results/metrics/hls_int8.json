@@ -1,0 +1,35 @@
+{
+  "target_device": "xcu55c-fsvh2892-2L-e",
+  "target_clock_period_ns": 10.0,
+  "estimated_clock_period_ns": 7.3,
+  "latency_best_case_cycles": 35336,
+  "latency_avg_case_cycles": 35336,
+  "latency_worst_case_cycles": 48077,
+  "latency_best_case_ms": "0.353 ms",
+  "latency_worst_case_ms": "0.481 ms",
+  "dataflow_interval_min_cycles": 8697,
+  "dataflow_interval_max_cycles": 48035,
+  "resources_used": {
+    "BRAM_18K": 46716,
+    "DSP": 1219,
+    "FF": 254875,
+    "LUT": 428939,
+    "URAM": 0
+  },
+  "resources_available": {
+    "BRAM_18K": 4032,
+    "DSP": 9024,
+    "FF": 2607360,
+    "LUT": 1303680,
+    "URAM": 960
+  },
+  "utilization_pct": {
+    "BRAM_18K": 1158.6309523809523,
+    "DSP": 13.508421985815604,
+    "FF": 9.7752132425135,
+    "LUT": 32.90216924398626,
+    "URAM": 0.0
+  },
+  "precision": "int8",
+  "source_xml": "/home/cdac/Music/fpga-neural-predecoder/hls/predecoder_proj/solution1/syn/report/predecoder_kernel_csynth.xml"
+}
