@@ -129,3 +129,22 @@ the reason it was made. Entries are added as each phase introduces them; see
   matches `src/model/golden.py`. See `docs/DECISIONS.md`, 2026-08-18. The
   `hw` bitstream build has not been run (gated behind `BUILD_HW=1`, not
   requested).
+
+## Phase 5: host integration
+
+- **No real hardware run has happened.** `host/host_predecoder.cpp` and
+  `host/run_hw.py` are written against the real XRT/pyxrt APIs (the C++ host
+  compiles and links against the real `libxrt_coreutil.so` on this host,
+  confirming API correctness), but neither has run against actual hardware:
+  no xclbin exists for `predecoder_kernel` (the `hw` build was not
+  attempted; see the Phase 4 entries in `docs/DECISIONS.md`). `run_hw.py`'s
+  "no xclbin available" fallback to the golden model is the only path
+  exercised for real, and is clearly labeled `"simulated": true` in every
+  result it writes; never silently. `run_on_hardware()` (the real-hardware
+  decode/timing path) raises `NotImplementedError` rather than pretending
+  to work, since it has never actually run.
+- **End-to-end latency numbers in the simulated path only cover the model
+  forward pass and PyMatching decode**, not host-to-device / kernel /
+  device-to-host transfer (those fields are `null`, not estimated or
+  invented, since there is no real transfer happening in the fallback
+  path). Real transfer numbers require an actual hardware run.

@@ -562,3 +562,38 @@
   `hw` bitstream build remains gated behind `BUILD_HW=1` and has not been
   run, per the plan's explicit instruction not to launch a multi-hour build
   without being asked.
+
+## 2026-08-18: Phase 5 scoped to host code written-but-unexercised, fallback exercised for real
+
+- **Decision:** `host/host_predecoder.cpp` (XRT C++: HBM bank assignment
+  via `kernel.group_id()`, a depth-4 ping-pong/ring buffer of independent
+  (input bo, output bo, run) slots for overlap across shots, per-stage
+  `std::chrono` timing) and `host/run_hw.py` (the same design via pyxrt)
+  are written to be correct against the real XRT API, but not run against
+  real hardware: no xclbin exists for this kernel (the `hw` build was not
+  attempted, given Phase 4's BRAM overshoot; see the Phase 4 entries
+  above). `run_hw.py`'s "no xclbin available" fallback to the golden model
+  IS exercised for real, since that is the actual, current state.
+- **Verification done despite no xclbin:** `host_predecoder.cpp` was
+  compiled AND linked (not just syntax-checked) against the real
+  `libxrt_coreutil.so` on this host, confirming every API call
+  (constructors, `group_id`, `bo::sync`, `run::start`/`wait`) matches the
+  real library, not just the headers. It fails cleanly (informative error,
+  no crash) when pointed at a nonexistent xclbin/shots file.
+  `run_hw.py --shots 10000` was run for real: it prints a loud,
+  un-missable warning, falls back to `QATPreDecoder3D` (the same model
+  `golden.py` is built from), and labels the result `"simulated": true` in
+  the committed JSON, with LER 0.0132 at d=5, p=0.003 -- consistent with
+  Phase 3's int8 sweep result (0.01258-0.01424 depending on seed/shots),
+  which is itself a useful cross-check that the fallback path is computing
+  the right thing.
+- **Alternatives considered:** attempting the `hw` build first so the real
+  path could be genuinely exercised. Asked the user; they chose the
+  lower-risk path (Phase 4's BRAM overshoot makes a `hw` build attempt
+  likely to fail or run for a very long time before failing) over
+  reopening Phase 4's resource-tuning work now.
+- **Known gap:** `run_hw.py`'s real-hardware branch
+  (`run_on_hardware` -> LER/latency aggregation) raises
+  `NotImplementedError` if a real xclbin is ever found, rather than
+  silently running incompletely-tested code path; finishing it is
+  documented follow-up work for whenever a working bitstream exists.

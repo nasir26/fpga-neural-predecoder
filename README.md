@@ -7,10 +7,11 @@ source code; the FPGA microarchitecture, quantization study, and latency
 model are original contributions. Author: Nasir Ali, C-DAC Noida.
 
 **Status: Phase 0 (environment and sanity), Phase 1 (QEC data layer),
-Phase 3 (quantization), and Phase 4 (HLS kernel: csim/csynth/cosim) done.
-Phase 2 (pre-decoder model, CPU training) closed for now with an honest,
-partially-negative result; R=9 sizing deferred.** The R=5 pre-decoder
-trains cleanly and its corrections are
+Phase 3 (quantization), Phase 4 (HLS kernel: csim/csynth/cosim), and Phase 5
+(host integration, code written and API-verified but not run against real
+hardware) done. Phase 2 (pre-decoder model, CPU training) closed for now
+with an honest, partially-negative result; R=9 sizing deferred.** The R=5
+pre-decoder trains cleanly and its corrections are
 architecturally and numerically sound (verified with an oracle test), but
 at the default decision threshold it is not yet a net win over PyMatching
 alone, and does not yet demonstrate the distance-generalisation property
@@ -79,6 +80,27 @@ real device as-is, and per-shot latency is ~350-500x the paper's own ~1us
 aspirational target (no shot-level pipelining yet). The kernel is scoped to
 a single fixed distance (d=5), not runtime-general; see
 `docs/LIMITATIONS.md`. The `hw` bitstream build has not been run.
+
+## Phase 5: host integration
+
+`host/host_predecoder.cpp` (XRT C++: HBM bank assignment via
+`kernel.group_id()`, a ping-pong/ring buffer of 4 slots for overlap across
+shots, per-stage timing) and `host/run_hw.py` (the same design via pyxrt)
+are written against the real XRT API -- the C++ host compiles and links
+against the real `libxrt_coreutil.so` on this host -- but **have not run
+against real hardware**: no xclbin exists (the `hw` build was not
+attempted; see Phase 4). `run_hw.py` falls back to the golden model
+whenever no xclbin is available (the current, actual state), and labels
+every such result `"simulated": true`, loudly, never silently:
+
+```
+$ python host/run_hw.py --shots 10000
+WARNING: no usable xclbin ... Falling back to the golden model.
+RESULTS ARE SIMULATED, NOT FROM REAL HARDWARE.
+wrote results/metrics/host_run_d5_p0.003.json (simulated=True)
+```
+
+Full numbers: `results/metrics/host_run_d5_p0.003.json`.
 
 ## Environment
 

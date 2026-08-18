@@ -1,0 +1,28 @@
+{
+  "simulated": true,
+  "simulated_reason": "no xclbin available; ran src/model/golden.py-equivalent (QATPreDecoder3D) instead of real hardware",
+  "distance": 5,
+  "R": 5,
+  "p": 0.003,
+  "shots": 10000,
+  "seed": 0,
+  "ler": 0.0132,
+  "ler_ci_low": 0.011142645756042856,
+  "ler_ci_high": 0.015631215057647876,
+  "mean_latency_us_per_shot": {
+    "host_to_device": null,
+    "kernel": null,
+    "device_to_host": null,
+    "predecoder_model": 217.67709080595523,
+    "pymatching_decode": 1.2439966201782227,
+    "total_honest": 218.92108742613345
+  },
+  "mean_latency_us_per_round": {
+    "host_to_device": null,
+    "kernel": null,
+    "device_to_host": null,
+    "predecoder_model": 43.535418161191046,
+    "pymatching_decode": 0.24879932403564453,
+    "total_honest": 43.78421748522669
+  }
+}
