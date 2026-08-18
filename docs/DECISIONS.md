@@ -539,3 +539,26 @@
     8,697-48,035 cycles). This is the honest, current state of contribution
     C4's latency budget, not a claimed result; the paper must say so
     plainly rather than imply the aspirational target was met.
+
+## 2026-08-18: cosim PASS -- RTL simulation matches golden.py bit-exactly (10/10)
+
+- `cosim_design` (real RTL simulation via XSIM, not the C model) ran all 10
+  committed test vectors (`tests/vectors/vectors_int8_small.txt`) through
+  the actual synthesized RTL and compared against the same golden.py-derived
+  expected outputs `tb_predecoder.cpp` checks in csim. Result: **"C/RTL
+  co-simulation finished: PASS"**, 10/10 shots bit-exact. This is the
+  strongest correctness evidence available short of an actual bitstream on
+  real hardware: the gate-level (post-synthesis) behavior, not just the
+  high-level C++ model, matches the bit-exact NumPy golden reference.
+- Runtime: cosim alone took about 39 minutes wall-clock (RTL simulation of
+  ~48,000-90,000 cycles per shot across 10 shots, XSIM); the full
+  `vitis_hls -f run_hls.tcl` invocation (csim + csynth + cosim together)
+  took about 93 minutes total elapsed time. Progress reporting during cosim
+  is per-shot (transaction), not continuous, which initially looked like a
+  stall for the first ~95 seconds of each shot before its completion line
+  printed; confirmed genuine (not stuck) by checking process CPU usage
+  directly before waiting further.
+- **Phase 4 status: csim, csynth, and cosim all complete and passing.** The
+  `hw` bitstream build remains gated behind `BUILD_HW=1` and has not been
+  run, per the plan's explicit instruction not to launch a multi-hour build
+  without being asked.

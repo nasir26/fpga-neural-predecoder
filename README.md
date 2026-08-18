@@ -6,10 +6,11 @@ work (see `NOTICE`). This is an independent implementation with no NVIDIA
 source code; the FPGA microarchitecture, quantization study, and latency
 model are original contributions. Author: Nasir Ali, C-DAC Noida.
 
-**Status: Phase 0 (environment and sanity), Phase 1 (QEC data layer), and
-Phase 3 (quantization) done. Phase 2 (pre-decoder model, CPU training)
-closed for now with an honest, partially-negative result; R=9 sizing
-deferred.** The R=5 pre-decoder trains cleanly and its corrections are
+**Status: Phase 0 (environment and sanity), Phase 1 (QEC data layer),
+Phase 3 (quantization), and Phase 4 (HLS kernel: csim/csynth/cosim) done.
+Phase 2 (pre-decoder model, CPU training) closed for now with an honest,
+partially-negative result; R=9 sizing deferred.** The R=5 pre-decoder
+trains cleanly and its corrections are
 architecturally and numerically sound (verified with an oracle test), but
 at the default decision threshold it is not yet a net win over PyMatching
 alone, and does not yet demonstrate the distance-generalisation property
@@ -53,6 +54,31 @@ fine-tuning: 3 epochs, 500,000 shots/epoch, from the FP32 checkpoint, one
 run per precision. HLS weight headers and binary blobs, with SHA-256, are
 exported to `hls/weights_{precision}.h` / `.bin`. Full numbers:
 `results/metrics/quantization_sweep.json`.
+
+## Phase 4 headline numbers: HLS kernel (INT8, d=5 only, `xcu55c-fsvh2892-2L-e`)
+
+`hls/predecoder_kernel.cpp`: line-buffered 3D conv (not a full-volume
+buffer) x2, 1x1x1 output conv, edge-correction + observable-parity stage,
+all four DATAFLOW-connected. csim, csynth, and cosim (real RTL simulation,
+not just the C model) all pass, cosim bit-exact 10/10 against
+`src/model/golden.py`. Real numbers, auto-parsed into
+`results/metrics/hls_int8.json` (`scripts/record_hls_metrics.py`), reported
+honestly including the parts that are not yet good:
+
+| | value |
+|---|---|
+| Estimated Fmax | 136.99 MHz |
+| Latency (worst case) | 48,077 cycles / 0.481 ms at 100 MHz target |
+| DSP / FF / LUT | 13.5% / 9.8% / 32.9% of device |
+| **BRAM_18K** | **46,716 / 4,032 available -- 1159%, over 11x budget** |
+
+This is a first-pass, correctness-prioritized synthesis (two pragma choices
+caused multi-hour synthesis runaways before being diagnosed and fixed; see
+`docs/DECISIONS.md`), not a resource-optimal one: it would not fit on the
+real device as-is, and per-shot latency is ~350-500x the paper's own ~1us
+aspirational target (no shot-level pipelining yet). The kernel is scoped to
+a single fixed distance (d=5), not runtime-general; see
+`docs/LIMITATIONS.md`. The `hw` bitstream build has not been run.
 
 ## Environment
 

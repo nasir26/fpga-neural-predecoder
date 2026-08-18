@@ -124,6 +124,8 @@ the reason it was made. Entries are added as each phase introduces them; see
   invented or hidden. Bringing BRAM under budget and closing the latency gap
   (shot-level pipelining, narrower array partitioning, more output-channel
   resource sharing) is follow-up work, not yet done.
-- **Cosim (RTL simulation against the same test vectors) was run but its
-  result is not yet recorded here**; see the conversation / a later
-  `docs/DECISIONS.md` entry for its outcome once available.
+- **Cosim (real RTL simulation via XSIM) passed: 10/10 shots bit-exact**,
+  confirming the synthesized gate-level design, not just the C++ model,
+  matches `src/model/golden.py`. See `docs/DECISIONS.md`, 2026-08-18. The
+  `hw` bitstream build has not been run (gated behind `BUILD_HW=1`, not
+  requested).
