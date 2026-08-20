@@ -1,0 +1,50 @@
+{
+  "precision": "int8",
+  "xclbin_path": "hls/build_hw/predecoder_kernel.xclbin",
+  "xclbin_size_bytes": 51609344,
+  "kernel_clock_hz": 100000000,
+  "timing": {
+    "wns_ns": 0.003,
+    "tns_ns": 0.0,
+    "tns_failing_endpoints": 0,
+    "tns_total_endpoints": 700988,
+    "whs_ns": 0.009,
+    "ths_ns": 0.0,
+    "ths_failing_endpoints": 0,
+    "ths_total_endpoints": 699255,
+    "timing_closed": true
+  },
+  "kernel_utilization_post_route": {
+    "LUT": {
+      "used": 101290,
+      "pct_of_user_budget": 8.57
+    },
+    "LUTAsMem": {
+      "used": 25200,
+      "pct_of_user_budget": 4.25
+    },
+    "FF": {
+      "used": 83565,
+      "pct_of_user_budget": 3.42
+    },
+    "BRAM": {
+      "used": 78,
+      "pct_of_user_budget": 4.29
+    },
+    "URAM": {
+      "used": 0,
+      "pct_of_user_budget": 0.0
+    },
+    "DSP": {
+      "used": 331,
+      "pct_of_user_budget": 3.67
+    }
+  },
+  "latency_worst_case_cycles": 1528325,
+  "latency_best_case_cycles": 1304125,
+  "latency_worst_case_ms_at_kernel_clock": 15.28325,
+  "latency_best_case_ms_at_kernel_clock": 13.041250000000002,
+  "source_timing_rpt": "hls/_x/reports/link/imp/impl_1_hw_bb_locked_timing_summary_routed.rpt",
+  "source_util_rpt": "hls/_x/reports/link/imp/impl_1_kernel_util_routed.rpt",
+  "note": "kernel_utilization_post_route is scoped to predecoder_kernel_1 only (excludes the U55C platform shell), from Vivado's post-route report_accelerator_utilization, not an HLS estimate. Percentages are of the kernel's User Budget (device resources minus what the platform shell reserves), not of total device resources -- not directly comparable to results/metrics/hls_{precision}.json's device-wide percentages."
+}

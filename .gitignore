@@ -8,6 +8,10 @@ models/
 *.log
 hls/proj_*/
 hls/predecoder_proj/
+hls/predecoder_csim_check/
+hls/build_hw/
+hls/_x/
+hls/.ipcache/
 hls/*.log
 hls/vitis_hls.log
 host/*.o

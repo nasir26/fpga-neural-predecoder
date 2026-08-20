@@ -66,20 +66,44 @@ not just the C model) all pass, cosim bit-exact 10/10 against
 `results/metrics/hls_int8.json` (`scripts/record_hls_metrics.py`), reported
 honestly including the parts that are not yet good:
 
-| | value |
-|---|---|
-| Estimated Fmax | 136.99 MHz |
-| Latency (worst case) | 48,077 cycles / 0.481 ms at 100 MHz target |
-| DSP / FF / LUT | 13.5% / 9.8% / 32.9% of device |
-| **BRAM_18K** | **46,716 / 4,032 available -- 1159%, over 11x budget** |
+| | original | after BRAM fix (2026-08-19) |
+|---|---|---|
+| Estimated Fmax | 136.99 MHz | 360.23 MHz |
+| Latency (worst case) | 48,077 cycles / 0.481 ms @ 100 MHz | 1,528,325 cycles / 5.094 ms @ ~300 MHz (v++ default clock, not the same target -- see `docs/DECISIONS.md`) |
+| DSP / FF / LUT | 13.5% / 9.8% / 32.9% | 3.1% / 11.1% / 28.1% |
+| **BRAM_18K** | **46,716 / 4,032 -- 1159%, over 11x budget** | **114 / 4,032 -- 2.8%, under budget** |
 
 This is a first-pass, correctness-prioritized synthesis (two pragma choices
 caused multi-hour synthesis runaways before being diagnosed and fixed; see
-`docs/DECISIONS.md`), not a resource-optimal one: it would not fit on the
-real device as-is, and per-shot latency is ~350-500x the paper's own ~1us
-aspirational target (no shot-level pipelining yet). The kernel is scoped to
-a single fixed distance (d=5), not runtime-general; see
-`docs/LIMITATIONS.md`. The `hw` bitstream build has not been run.
+`docs/DECISIONS.md`), not a resource-optimal one. The original BRAM
+overshoot (11x over budget) is now fixed: the dominant driver was a
+1728-way fully unrolled MAC loop (`dz,dy,dx,ic` all unrolled for the wide
+hidden layer), not the frame buffer. De-unrolling the `ic` dimension to a
+27-way spatial unroll plus a serially-pipelined channel reduction cut
+BRAM_18K to 2.8% of budget, verified bit-exact via csim before
+resynthesizing -- at the cost of ~32x worse latency on top of an already
+far-over-target number (per-shot latency remains many orders of magnitude
+above the paper's own ~1us aspirational target; no shot-level pipelining
+yet). The kernel is scoped to a single fixed distance (d=5), not
+runtime-general; see `docs/LIMITATIONS.md`.
+
+**Update, 2026-08-19: a real, timing-closed `.xclbin` was built.**
+`v++ -l -t hw` (full place-and-route against the U55C platform shell), in
+two attempts: the first, at v++'s own default ~300 MHz target (3h54m),
+produced a well-formed but timing-unclosed bitstream (WNS -0.609 ns).
+Rebuilding just the link step at an explicit 100 MHz target
+(`hls/link_100mhz.cfg`, 2h33m, same `.xo` reused) closed it: **WNS
++0.003 ns, TNS 0.000 ns, 0 of 700,988 endpoints failing**. Verified
+well-formed via `xclbinutilinfo` (correct kernel name, platform, HBM port
+mapping). Kernel-scoped post-route utilization (excludes the platform
+shell): LUT 8.6% / FF 3.4% / BRAM 4.3% / DSP 3.7% of the kernel's user
+budget. Real latency at the actual 100 MHz clock: 13.0-15.3 ms/shot,
+still roughly 15,000x the paper's ~1us aspirational target. This is the
+first result in the project that is simultaneously within budget and
+timing-closed; it has not yet been run on the actual card (`run_hw.py`'s
+real-hardware path is still an unexercised stub). See
+`docs/DECISIONS.md` and `docs/LIMITATIONS.md` for the full trail and
+`results/metrics/hw_build_int8.json` for the numbers.
 
 ## Phase 5: host integration
 

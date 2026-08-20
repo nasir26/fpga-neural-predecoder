@@ -67,18 +67,50 @@ CONV_T:
                 ActVec out;
             OC_LOOP:
                 for (int oc = 0; oc < 64; oc++) {
-#pragma HLS PIPELINE II=1
-                    acc_t acc = 0;
-                MAC:
+                    // Deliberately NOT a single fully-unrolled dz*dy*dx*ic MAC:
+                    // for IN_C=64 that is 1728 simultaneous reads into
+                    // weight_flat every cycle, which forces the synthesizer to
+                    // partition the weight array into ~1728 separately-banked
+                    // slices -- the dominant driver of the 1159%-of-budget
+                    // BRAM_18K overshoot recorded in results/metrics/hls_int8.json
+                    // (see docs/DECISIONS.md). Unrolling only the 3x3x3 spatial
+                    // taps (27-way) and pipelining the ic reduction serially
+                    // cuts the parallel-port requirement on weight_flat by
+                    // ~IN_C/1, at the cost of ~IN_C cycles per output channel
+                    // instead of 1 -- latency was already far over target, so
+                    // this trades a known-bad number for a worse one in
+                    // exchange for actually fitting on the device.
+                    acc_t partial[3][3][3];
+#pragma HLS ARRAY_PARTITION variable=partial complete dim=0
+                PARTIAL_INIT:
                     for (int dz = 0; dz < 3; dz++)
                         for (int dy = 0; dy < 3; dy++)
-                            for (int dx = 0; dx < 3; dx++)
-                                for (int ic = 0; ic < IN_C; ic++) {
+                            for (int dx = 0; dx < 3; dx++) {
+#pragma HLS UNROLL
+                                partial[dz][dy][dx] = 0;
+                            }
+
+                IC_LOOP:
+                    for (int ic = 0; ic < IN_C; ic++) {
+#pragma HLS PIPELINE II=1
+                    MAC:
+                        for (int dz = 0; dz < 3; dz++)
+                            for (int dy = 0; dy < 3; dy++)
+                                for (int dx = 0; dx < 3; dx++) {
 #pragma HLS UNROLL
                                     int widx = ((((oc * IN_C + ic) * 3 + dz) * 3 + dy) * 3 + dx);
-                                    acc += (acc_t)weight_flat[widx] * (acc_t)window[dz][dy][dx][ic];
+                                    partial[dz][dy][dx] += (acc_t)weight_flat[widx] * (acc_t)window[dz][dy][dx][ic];
                                 }
-                    acc += bias[oc];
+                    }
+
+                    acc_t acc = bias[oc];
+                SUM_PARTIAL:
+                    for (int dz = 0; dz < 3; dz++)
+                        for (int dy = 0; dy < 3; dy++)
+                            for (int dx = 0; dx < 3; dx++) {
+#pragma HLS UNROLL
+                                acc += partial[dz][dy][dx];
+                            }
                     if (acc < 0) acc = 0;  // ReLU
 
                     product_t scaled = product_t(acc) * product_t(requant_mult[oc]);

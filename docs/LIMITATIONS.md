@@ -114,16 +114,46 @@ the reason it was made. Entries are added as each phase introduces them; see
   array-partitioned, data-dependently-indexed correction buffer forced to
   II=1) before being diagnosed and fixed; see `docs/DECISIONS.md` for the
   full story. With both fixed, csynth completes in about an hour and all
-  loop constraints are satisfied, but the resulting design uses
+  loop constraints are satisfied, but the resulting design originally used
   **1159% of the U55C's BRAM_18K budget** (46,716 used vs 4,032 available)
-  and has per-shot latency of 0.35-0.48 ms, roughly 350-500x the paper's own
+  and had per-shot latency of 0.35-0.48 ms, roughly 350-500x the paper's own
   ~1us aspirational target (no shot-level pipelining is implemented; each
-  shot runs mostly-sequentially through the 4 DATAFLOW stages). Both numbers
-  are real, automatically parsed from the csynth report
-  (`scripts/record_hls_metrics.py`, `results/metrics/hls_int8.json`), not
-  invented or hidden. Bringing BRAM under budget and closing the latency gap
-  (shot-level pipelining, narrower array partitioning, more output-channel
-  resource sharing) is follow-up work, not yet done.
+  shot runs mostly-sequentially through the 4 DATAFLOW stages).
+  **Update, 2026-08-19: the BRAM overshoot is fixed.** The 1728-way fully
+  unrolled `MAC` loop in `conv3d_hidden_layer` (`dz,dy,dx,ic` all unrolled
+  for the `IN_C=64` hidden layer) was the dominant driver, not the frame
+  buffer. De-unrolling the `ic` dimension (27-way spatial unroll kept,
+  `ic` reduced serially over a pipelined loop) cut BRAM_18K usage to
+  **114 / 4,032 (2.8%)**, comfortably under budget, verified bit-exact
+  against `src/model/golden.py` via csim before resynthesizing. The cost:
+  worst-case latency cycle count went up ~31.8x (48,077 -> 1,528,325
+  cycles), on top of an already-bad number, and the target clock used for
+  this second run (v++'s own default, 3.33 ns / ~300 MHz) is not the same
+  as the first run's explicit 100 MHz target, so the millisecond figures
+  are not directly comparable between the two rows; see
+  `docs/DECISIONS.md` for the full numbers and caveats. Closing the
+  latency gap (shot-level pipelining, further resource/latency tuning) is
+  still follow-up work, not yet done.
+- **Update, 2026-08-19: a real, timing-closed `.xclbin` was built.** First
+  attempt (`v++ -l -t hw` at v++'s default ~300 MHz target, 3h54m) produced
+  a well-formed but timing-unclosed bitstream (WNS -0.609 ns, 8,418 of
+  701,750 endpoints failing). Rebuilt the link step only (same `.xo`, no
+  need to resynthesize) at an explicit 100 MHz target via
+  `hls/link_100mhz.cfg`, 2h33m: **WNS +0.003 ns, TNS 0.000 ns, 0 failing
+  endpoints -- timing closed**, margin thin (3 ps) but real. Kernel-scoped
+  post-route utilization (`results/metrics/hw_build_int8.json`, from
+  Vivado's `report_accelerator_utilization`, excludes the platform shell):
+  LUT 8.57%, FF 3.42%, BRAM 4.29%, DSP 3.67% of the kernel's user budget --
+  all comfortably low. **Real latency at the actual configured 100 MHz
+  clock: 13.04-15.28 ms per shot** (cycle counts unchanged from the HLS
+  estimate, only the clock changed), roughly 15,000x the paper's own ~1us
+  aspirational target; closing that gap is still real follow-up work. This
+  is the first data point in the whole project that is simultaneously
+  within the device's resource budget and timing-closed -- i.e. an honest
+  candidate for an actual on-card run, though that run itself has not been
+  attempted (`host/run_hw.py`'s real-hardware path remains an unexercised
+  `NotImplementedError` stub; see the Phase 5 entries below). Full numbers
+  and the BRAM-fix-then-timing-fix trail: `docs/DECISIONS.md`.
 - **Cosim (real RTL simulation via XSIM) passed: 10/10 shots bit-exact**,
   confirming the synthesized gate-level design, not just the C++ model,
   matches `src/model/golden.py`. See `docs/DECISIONS.md`, 2026-08-18. The

@@ -1,0 +1,14 @@
+{
+  "distance": 5,
+  "rounds": 5,
+  "basis": "z",
+  "p": 0.002,
+  "seed": 0,
+  "shots": 100000,
+  "ler": 0.00108,
+  "ler_ci_low": 0.0008946934181870481,
+  "ler_ci_high": 0.0013036367220728123,
+  "timing_shots": 1000,
+  "mean_latency_us_per_shot": 10.65232208929956,
+  "mean_latency_us_per_round": 2.130464417859912
+}

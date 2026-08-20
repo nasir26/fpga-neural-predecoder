@@ -1,19 +1,19 @@
 {
   "target_device": "xcu55c-fsvh2892-2L-e",
-  "target_clock_period_ns": 10.0,
-  "estimated_clock_period_ns": 7.3,
-  "latency_best_case_cycles": 35336,
-  "latency_avg_case_cycles": 35336,
-  "latency_worst_case_cycles": 48077,
-  "latency_best_case_ms": "0.353 ms",
-  "latency_worst_case_ms": "0.481 ms",
-  "dataflow_interval_min_cycles": 8697,
-  "dataflow_interval_max_cycles": 48035,
+  "target_clock_period_ns": 3.33,
+  "estimated_clock_period_ns": 2.776,
+  "latency_best_case_cycles": 1304125,
+  "latency_avg_case_cycles": 1304125,
+  "latency_worst_case_cycles": 1528325,
+  "latency_best_case_ms": "4.347 ms",
+  "latency_worst_case_ms": "5.094 ms",
+  "dataflow_interval_min_cycles": 12783,
+  "dataflow_interval_max_cycles": 1528283,
   "resources_used": {
-    "BRAM_18K": 46716,
-    "DSP": 1219,
-    "FF": 254875,
-    "LUT": 428939,
+    "BRAM_18K": 114,
+    "DSP": 276,
+    "FF": 288347,
+    "LUT": 366534,
     "URAM": 0
   },
   "resources_available": {
@@ -24,12 +24,12 @@
     "URAM": 960
   },
   "utilization_pct": {
-    "BRAM_18K": 1158.6309523809523,
-    "DSP": 13.508421985815604,
-    "FF": 9.7752132425135,
-    "LUT": 32.90216924398626,
+    "BRAM_18K": 2.8273809523809526,
+    "DSP": 3.0585106382978724,
+    "FF": 11.058963856161022,
+    "LUT": 28.115335051546392,
     "URAM": 0.0
   },
   "precision": "int8",
-  "source_xml": "/home/cdac/Music/fpga-neural-predecoder/hls/predecoder_proj/solution1/syn/report/predecoder_kernel_csynth.xml"
+  "source_xml": "hls/_x/reports/predecoder_kernel/hls_reports/predecoder_kernel_csynth.rpt"
 }

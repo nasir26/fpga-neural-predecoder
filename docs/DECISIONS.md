@@ -597,3 +597,192 @@
   `NotImplementedError` if a real xclbin is ever found, rather than
   silently running incompletely-tested code path; finishing it is
   documented follow-up work for whenever a working bitstream exists.
+
+## Post-Phase-5: revisiting the Phase 4 BRAM overshoot, attempting a real `hw` build
+
+- **Trigger:** the user asked to actually build a real `.xclbin` via the
+  standard `v++ -c -t hw` / `v++ -l -t hw` command-line flow (as distinct
+  from Vitis HLS's `export_design -flow impl`, never attempted -- see
+  Phase 4). Confirmed with the user before running: given the recorded
+  1159%-of-budget BRAM overshoot, this was expected to very likely fail or
+  run for hours before failing; the user chose to attempt it anyway
+  (2026-08-18) for real, honest data rather than a guess.
+- **`v++ -c -t hw` (first attempt, unmodified kernel), 2026-08-18:**
+  succeeded in 1h28m, produced a 437MB `.xo`. All loop constraints
+  satisfied, Estimated Fmax 360.23 MHz. This step runs Vitis HLS
+  internally but does not itself do place-and-route, so it does not
+  surface the BRAM overshoot as a hard failure; the link step
+  (`v++ -l -t hw`, full Vivado place-and-route) was expected to be where
+  it would actually fail. Not yet attempted at this point.
+- **Root-caused the BRAM overshoot before attempting the link step.**
+  Reading `hls/predecoder_kernel.cpp`'s `conv3d_hidden_layer` MAC loop
+  (not `hls/line_buffer.h`'s `FrameBuffer3D`, an earlier and much smaller
+  suspect that was proposed and explicitly not pursued) found the real
+  driver: for the wide hidden layer (`IN_C=64`), the `MAC` loop had
+  `dz,dy,dx,ic` **all** `#pragma HLS UNROLL`'d together -- 3x3x3x64 =
+  1728-way fully parallel access into the 110,592-entry constant
+  `weight_flat` array every cycle, with the offset depending on the
+  runtime `oc` value. Serving 1728 simultaneous reads (only `oc` varying
+  at runtime) forces the synthesizer to partition that weight array into
+  ~1728 separately-addressable slices; if each lands on its own BRAM_18K
+  primitive (plausible default, since Vitis HLS does not aggressively
+  pack small unrelated slices into shared blocks), that is the right
+  order of magnitude to explain 46,716 BRAM_18K instances.
+- **Fix: de-unroll the `ic` dimension.** Restructured `conv3d_hidden_layer`
+  (`hls/predecoder_kernel.cpp`) to keep only the 27 spatial taps
+  (`dz,dy,dx`) unrolled into 27 partial accumulator registers
+  (`#pragma HLS ARRAY_PARTITION variable=partial complete dim=0`), and
+  added a new `IC_LOOP` that reduces over `ic` serially with
+  `#pragma HLS PIPELINE II=1`, summing the 27 partials into the final
+  `acc` after the loop. Since both the weight and window operands are
+  integers accumulated into a fixed-width integer accumulator (`acc_t`),
+  re-associating the summation this way is exact, not an approximation:
+  integer addition is associative/commutative, unlike the FP32 case
+  discussed in the Phase 3 entries above. Verified via a fast
+  `csim`-only pass (`hls/run_csim_only.tcl`, new file, ~2 minutes, does
+  not run synthesis) before paying for another full `v++` recompile:
+  **10/10 shots still bit-exact** against `src/model/golden.py`, exactly
+  matching the original Phase 4 cosim result.
+- **`v++ -c -t hw` (second attempt, restructured kernel), 2026-08-19:**
+  succeeded in 54m, `.xo` size dropped from 437MB to 13.5MB. Real
+  synthesis numbers (`hls/_x/reports/predecoder_kernel/hls_reports/predecoder_kernel_csynth.rpt`,
+  parsed into `results/metrics/hls_int8.json` by the now-extended
+  `scripts/record_hls_metrics.py`, see below):
+
+  | | Phase 4 (unmodified) | after MAC restructuring |
+  |---|---|---|
+  | BRAM_18K | 46,716 / 4,032 (1158.6%) | **114 / 4,032 (2.8%)** |
+  | DSP | 1,219 / 9,024 (13.5%) | 276 / 9,024 (3.1%) |
+  | FF | 254,875 / 2,607,360 (9.8%) | 288,347 / 2,607,360 (11.1%) |
+  | LUT | 428,939 / 1,303,680 (32.9%) | 366,534 / 1,303,680 (28.1%) |
+  | latency (worst case) | 48,077 cycles / 0.481 ms | 1,528,325 cycles / 5.094 ms |
+
+  The BRAM fix is real and large (~410x reduction, from 11x over budget to
+  comfortably under it). The cost is also real: worst-case latency cycle
+  count went up ~31.8x, roughly matching the expected cost of serializing
+  a 64-wide reduction that used to be free (1 cycle) and now takes ~64
+  pipelined cycles per output channel. Latency was already far over the
+  paper's aspirational target before this change; it is now much further
+  over. This was the explicit, agreed trade (fit the device, accept worse
+  latency) -- not a free win.
+- **Caveat: the two rows above are not measured at the same target clock.**
+  Phase 4's csynth ran through the `vitis_hls` project flow
+  (`hls/run_hls.tcl`), which explicitly sets `create_clock -period 10`
+  (100 MHz target). This `v++ -c -t hw` run did not pass any clock/config
+  argument, so `v++` used the U55C platform's own default kernel clock,
+  which the report shows as 3.33 ns target (~300 MHz), not 10 ns. The
+  cycle counts (48,077 vs 1,528,325) are the fair, clock-independent
+  comparison; the millisecond figures in the table above are each correct
+  for their own run but are not directly comparable to each other without
+  accounting for this. Pinning an explicit clock via a `v++ --config` file
+  (matching the reference pattern the user shared, which uses a
+  `[clock] freqHz=...` directive) is follow-up work if a clean
+  apples-to-apples comparison is needed for the paper.
+- **`scripts/record_hls_metrics.py` extended, not replaced.** The
+  `v++ -c -t hw` flow's report directory
+  (`hls/_x/reports/predecoder_kernel/hls_reports/`) contains only a text
+  `.rpt`, no XML -- the XML report Phase 4's parser expected only exists
+  under the `vitis_hls` project flow's `solution1/syn/report/` directory.
+  Rather than hand-transcribing numbers from the `.rpt` (a hard rule of
+  this project; see the file's own docstring), added `parse_csynth_rpt()`
+  alongside the existing `parse_csynth_xml()`, selected by file extension,
+  and an explicit source-path argument (`record_hls_metrics.py <precision>
+  <path>`) since the two flows put their reports in different places.
+- **`v++ -l -t hw` (place-and-route / bitstream link), 2026-08-19:**
+  completed in 3h54m27s and produced a real, well-formed
+  `hls/build_hw/predecoder_kernel.xclbin` (53,088,266 bytes; gitignored, not
+  committed -- binary build artifact, trivially regenerable from source and
+  these logs). Verified, not assumed: `xclbinutilinfo` confirms the
+  `Kernels:` field lists `predecoder_kernel`, targets the correct platform
+  (`xilinx_u55c_gen3x16_xdma_3_202210_1`), and the `predecoder_kernel_1`
+  instance's `IP_LAYOUT`/`CONNECTIVITY` sections map `syndrome_hbm` to
+  `M_AXI_GMEM0`/`HBM[0]` and `correction_hbm` to `M_AXI_GMEM1`, matching the
+  kernel's actual `m_axi bundle=gmem0/gmem1` interface exactly. No `ERROR`
+  or `CRITICAL WARNING` lines in `hls/build_hw/vpp_link.log`.
+- **Caveat, load-bearing, not glossed over: timing did not close.** The
+  routed design's timing summary
+  (`hls/_x/reports/link/imp/impl_1_hw_bb_locked_timing_summary_routed.rpt`)
+  reports **WNS = -0.609 ns, TNS = -1217.878 ns, 8,418 of 701,750 endpoints
+  failing** (~1.2%, each individually a small violation). Hold timing is
+  clean (WHS 0.002 ns, 0 failing endpoints). `v++`'s `hw` flow packages an
+  `.xclbin` regardless of timing closure -- producing the file is not the
+  same claim as "this bitstream is safe to run on real hardware at its
+  configured clock." Running an unclosed-timing bitstream at full speed
+  risks setup-time data corruption on the failing paths; this has NOT been
+  attempted (see `host/run_hw.py`'s existing "no usable xclbin" fallback
+  behavior in the Phase 5 entries above -- pointing it at this xclbin
+  specifically has not been tried and is a separate, real decision, not
+  something to do silently).
+  Background-task tracking of this run was itself interrupted partway
+  through (an unrelated harness/session hiccup, not a build failure); the
+  build process itself was independent of that tracking loop and completed
+  on its own, confirmed by checking the real OS process state and the log
+  file directly rather than assuming either success or failure from the
+  broken notification.
+- **Decision: rebuild at 100 MHz (10 ns) to close timing.** Confirmed with
+  the user (2026-08-19); chose the lower-clock rebuild over trying Vivado
+  P&R directives at the original ~300 MHz target, and over stopping with
+  the unclosed-timing bitstream as the final recorded result. Added
+  `hls/link_100mhz.cfg` (`[clock] freqHz=100000000:predecoder_kernel_1`,
+  kernel instance name confirmed from the first build's
+  `xclbin.info`, not guessed) and reran only the link step -- the existing
+  `.xo` from the earlier `v++ -c -t hw` did not need to be regenerated,
+  since HLS cycle counts do not depend on link-time clock assignment.
+  Old artifacts preserved as `*_unclosed_300mhz.*` /
+  `vpp_link_attempt1_unclosed.log` before overwriting (gitignored, not
+  committed, but kept locally for comparison).
+- **`v++ -l -t hw` at 100 MHz, 2026-08-19: timing closed.** Completed in
+  2h33m13s (faster than the first attempt's 3h54m, consistent with easier
+  place-and-route at a more relaxed clock target). Real numbers from the
+  routed design (`hls/_x/reports/link/imp/impl_1_hw_bb_locked_timing_summary_routed.rpt`):
+  **WNS = +0.003 ns, TNS = 0.000 ns, 0 of 700,988 endpoints failing**; hold
+  timing also clean (WHS +0.009 ns, 0 of 699,255 endpoints failing). The
+  margin is thin (three picoseconds) but genuinely non-negative, and no
+  `ERROR`/`CRITICAL WARNING` lines appear in `hls/build_hw/vpp_link.log`.
+  `predecoder_kernel.xclbin` (51,609,344 bytes) verified well-formed via
+  `xclbinutilinfo` the same way as the first build.
+- **New, more authoritative resource numbers: kernel-scoped, post-route.**
+  Vivado's `report_accelerator_utilization` (in
+  `hls/_x/reports/link/imp/impl_1_kernel_util_routed.rpt`) reports usage
+  for `predecoder_kernel_1` specifically, excluding the U55C platform
+  shell -- a more precise, real-hardware number than the earlier
+  device-wide HLS csynth estimate (which does not know about the shell's
+  own resource reservation). Added `scripts/record_hw_build_metrics.py`
+  (parses this report plus the timing summary, does not hand-transcribe)
+  writing `results/metrics/hw_build_int8.json`:
+
+  | resource | kernel-scoped, post-route, % of kernel's user budget |
+  |---|---|
+  | LUT | 8.57% (101,290 used) |
+  | FF | 3.42% (83,565 used) |
+  | BRAM | 4.29% (78 used) |
+  | DSP | 3.67% (331 used) |
+
+  These percentages are of the kernel's *user budget* (device resources
+  minus the platform shell's own reservation), not of total device
+  resources, so they are not directly comparable number-for-number to the
+  device-wide percentages in `results/metrics/hls_int8.json` -- both are
+  real, just scoped differently; see the `note` field in
+  `hw_build_int8.json`.
+- **Final honest latency at the actual configured clock (100 MHz, cycle
+  counts unchanged from the HLS estimate since only the clock changed):
+  worst case 1,528,325 cycles = 15.283 ms, best case 1,304,125 cycles =
+  13.041 ms per shot.** This is the real, closed-timing number -- worse in
+  absolute time than both the original Phase 4 kernel (0.481 ms, but
+  11x over BRAM budget and never built as `hw`) and the first (unclosed)
+  `hw` attempt at ~300 MHz (5.094 ms, but not safe to run). Of the three
+  real data points collected across this BRAM-fix-then-timing-fix
+  sequence, this is the only one that is simultaneously (a) within the
+  device's resource budget and (b) timing-closed -- i.e. the only one
+  that is an honest candidate for an actual on-card run. It remains
+  ~15,000x the paper's own ~1us aspirational target; closing that gap
+  (shot-level pipelining, resource/latency retuning of the now
+  comfortably-under-budget design) is real follow-up work, not attempted
+  here.
+- **End state of this line of work:** a real, verified, timing-closed
+  `.xclbin` for `predecoder_kernel` at d=5/int8 now exists locally
+  (`hls/build_hw/predecoder_kernel.xclbin`, gitignored). Whether to
+  actually load it onto the real U55C card via `host/run_hw.py` /
+  `host_predecoder.cpp` (exercising `run_on_hardware`, currently a
+  `NotImplementedError` stub -- see the Phase 5 entries above) is a
+  separate, not-yet-taken step.
