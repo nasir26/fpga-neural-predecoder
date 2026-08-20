@@ -1,35 +1,148 @@
 # fpga-neural-predecoder
 
-FPGA reimplementation, in progress, of the neural pre-decoder concept for
-surface-code quantum error correction described by NVIDIA's `Ising-Decoding`
-work (see `NOTICE`). This is an independent implementation with no NVIDIA
-source code; the FPGA microarchitecture, quantization study, and latency
-model are original contributions. Author: Nasir Ali, C-DAC Noida.
+FPGA reimplementation of the neural pre-decoder concept for surface-code
+quantum error correction described by NVIDIA's `Ising-Decoding` work (see
+`NOTICE`). This is an independent implementation with no NVIDIA source code;
+the FPGA microarchitecture, quantization study, and latency model are
+original contributions. Author: Nasir Ali, C-DAC Noida.
 
-**Status: Phase 0 (environment and sanity), Phase 1 (QEC data layer),
-Phase 3 (quantization), Phase 4 (HLS kernel: csim/csynth/cosim, plus a
-real, timing-closed `hw` bitstream built after Phase 5), Phase 5 (host
-integration, code written and API-verified but not run against real
-hardware), Phase 6 (benchmarks and figures, R=5 only), and Phase 7
-(IEEE-format paper, `paper/paper.pdf`) done. Phase 2
-(pre-decoder model, CPU training) closed for now with an honest,
-partially-negative result; R=9 sizing deferred.** The R=5
-pre-decoder trains cleanly and its corrections are
-architecturally and numerically sound (verified with an oracle test), but
-at the default decision threshold it is not yet a net win over PyMatching
-alone, and does not yet demonstrate the distance-generalisation property
-the method depends on. Several real bugs were found and fixed along the way
-(see `docs/DECISIONS.md` for the full trail); the current numbers are
-correct and reproducible, just not yet a positive result for the FP32
-baseline. The quantization study (Phase 3) is a clean, positive result in
-its own right regardless: INT8 and ternary cost essentially nothing
-relative to FP32, only INT4 shows a real regression. See
-`claude_code_prompt_ising_fpga.md` in the repository root for the full
-phased plan this project follows, and `docs/LIMITATIONS.md` /
-`docs/DECISIONS.md` for scope reductions and open issues (notably: X/Z
-basis only, no "four orientations"; uniform-depolarizing noise only, the
-25-parameter noise model is deferred; Phase 2's model quality gap described
-above).
+**Method in one paragraph:** a fully convolutional 3D CNN reads a rotated
+surface code's syndrome detection volume (built from Stim-simulated circuits)
+and predicts, per local edge of the code's detector error model, whether a
+local error mechanism fired; those predictions are applied as corrections
+(shift-and-XOR against both a fault's detector footprints, plus a fold-in of
+each edge's direct effect on the logical observable) before the residual
+syndrome is handed to a PyMatching decoder. The network is quantized to
+INT8/INT4/ternary via quantization-aware training and exported as fixed-point
+weights for a Vitis HLS kernel, synthesized and placed-and-routed to a real
+bitstream for a Xilinx Alveo U55C.
+
+**Status: all 8 phases of the governing plan
+(`claude_code_prompt_ising_fpga.md`) are done.** The headline result is
+mixed, reported honestly rather than reframed: the trained pre-decoder does
+not beat a PyMatching-only baseline at its training distance and gets worse,
+not better, at larger distances (a negative result); quantization to INT8/
+ternary and a real, resource-fitting, timing-closed FPGA bitstream are both
+genuine positive results, reported separately from the accuracy claim they
+do not rescue. See `paper/paper.pdf` for the full writeup.
+
+## Headline results
+
+| Result | Value | Source |
+|---|---|---|
+| Baseline LER (PyMatching only, d=5, p=0.003) | 0.00291 | `results/metrics/baseline_d5_r5_z_p0.003.json` |
+| Pre-decoder LER (FP32, d=5, p=0.003) | 0.01253 (**4.3x worse** than baseline) | `results/metrics/phase6_sweep.json` |
+| Pre-decoder LER reduction factor, d=5 -> d=13 (p=0.003) | 0.23 -> 0.00024 (**~1000x worse**, not better) | `results/metrics/phase6_sweep.json`, Fig. 2 |
+| Syndrome density reduction (real, across d=5..13) | 43-56% | `results/metrics/phase6_sweep.json`, Fig. 3 |
+| Quantization cost, INT8 / ternary vs FP32 (d=5, p=0.003) | within ~3% relative LER (**negligible**) | `results/metrics/quantization_sweep.json` |
+| Quantization cost, INT4 vs FP32 | ~8-10% relative LER regression | `results/metrics/quantization_sweep.json` |
+| HLS BRAM_18K, before / after the unroll fix | 1159% of budget -> 2.8% of budget | `docs/DECISIONS.md`, Table in `paper/paper.pdf` |
+| Real `hw` bitstream: timing closure | **closed** at 100MHz (WNS +0.003ns, 0 failing endpoints) | `results/metrics/hw_build_int8.json` |
+| Real per-shot latency at closed-timing clock | 13.0-15.3 ms (**~4 orders of magnitude** above the ~1us aspirational target) | `results/metrics/hw_build_int8.json` |
+
+Full detail on every row, including the phase-by-phase story of how each
+number was reached (and the real bugs found and fixed along the way), is in
+the sections below, in `docs/DECISIONS.md`, and in `paper/paper.pdf`.
+
+## Key limitations (see `docs/LIMITATIONS.md` for the full, phase-by-phase log)
+
+- **R=9 was never trained or evaluated.** Every result in this repository is
+  for the R=5 (depth-2, receptive-field-5) pre-decoder only; R=9 training was
+  scoped out early as a ~20-hour CPU-only commitment and deliberately
+  deferred, not attempted and hidden.
+- **The pre-decoder does not beat the baseline it is meant to improve on**,
+  and its disadvantage grows, not shrinks, past its training distance --
+  the opposite of the distance-generalization property the fully
+  convolutional architecture is intended to provide. See `paper/paper.pdf`
+  Section IX for the candidate explanations (undertrained relative to the
+  reference recipe's compute budget; a training target that is, by
+  construction, a strict subset of the true error process).
+- **The HLS kernel is scoped to a single fixed code distance (d=5)**, not
+  runtime-general, because the observable-parity lookup table it uses was
+  not verified to be a fixed geometric rule independent of distance.
+- **No result in this repository comes from running on real FPGA hardware.**
+  A real, timing-closed bitstream exists (`hls/build_hw/predecoder_kernel.xclbin`,
+  gitignored, rebuildable from source), but `host/run_hw.py`'s real-hardware
+  code path has never been exercised against the card; every reported
+  latency/accuracy number from the host pipeline comes from its labeled,
+  honest software fallback (`"simulated": true` in every such result).
+- **Real per-shot latency (13.0-15.3 ms) remains roughly four orders of
+  magnitude above the method's own ~1us aspirational target.** This is not
+  primarily a clock-speed artifact: the dominant cost is a direct, load-
+  bearing consequence of the same fix that resolved the BRAM overshoot
+  (trading unrolled parallelism for on-chip memory budget).
+- Noise model is Stim's uniform-depolarizing channel only; the full
+  25-parameter circuit-level noise model is not implemented. X/Z memory
+  basis only, not "four orientations" (the rotated surface code's boundary
+  symmetry makes this a relabeling, not new physics).
+
+## Hardware requirements
+
+- **Target device:** Xilinx Alveo U55C (`xcu55c-fsvh2892-2L-e`,
+  `xilinx_u55c_gen3x16_xdma_3_202210_1` platform). All HLS/synthesis/
+  place-and-route results in this repository were built against this exact
+  platform file.
+- **To rebuild the bitstream:** Vitis/Vitis HLS 2023.2 and Vivado 2023.2 (the
+  `v++`/`vitis_hls` toolchain), plus the platform `.xpfm` installed locally.
+  No GPU is used or required anywhere in this project.
+- **To run inference/training/benchmarks:** any x86_64 Linux host with the
+  pinned CPU-only Python environment below; no FPGA card is required for
+  anything except an actual on-card `hw` run, which this project has not
+  performed (see Limitations above).
+- **To load the built bitstream onto a real card:** XRT (this project used
+  2.15.225) and a physical Alveo U55C; not required to reproduce any other
+  number in this repository.
+
+## Reproduce
+
+```bash
+# Environment (CPU-only; no GPU, no Docker)
+make venv
+make smoke      # sanity check: builds a d=3 circuit, decodes 1000 shots
+make test       # 76 unit/regression tests
+
+# Phase 1: baseline (PyMatching only)
+make baseline
+
+# Phase 2: train the FP32 pre-decoder (single CPU, ~1.7 hours at defaults)
+python src/model/train.py
+python bench/run_predecoder.py --checkpoint models/predecoder_R5.pt \
+    --distances 5 7 9 11 --p 0.003 --shots 100000 --timing-shots 1000
+
+# Phase 3: quantization-aware fine-tuning and sweep
+python src/model/train_qat.py --precision int8
+python src/model/train_qat.py --precision int4
+python src/model/train_qat.py --precision ternary
+python bench/sweep_precision.py --fp32-checkpoint models/predecoder_R5.pt \
+    --distances 5 7 --p 0.003 --shots 100000 --timing-shots 1000
+
+# Phase 4: HLS csim/csynth/cosim (Vitis HLS 2023.2; no hardware needed)
+source /opt/xilinx/xrt/setup.sh && source /tools/Xilinx/Vitis/2023.2/settings64.sh
+cd hls && vitis_hls -f run_hls.tcl && cd ..
+
+# Phase 4/5 (optional, hours, needs the real platform file):
+# a real hw bitstream build
+cd hls
+v++ -c -t hw --platform <path-to>/xilinx_u55c_gen3x16_xdma_3_202210_1.xpfm \
+    -k predecoder_kernel -I. -o build_hw/predecoder_kernel.xo predecoder_kernel.cpp
+v++ -l -t hw --platform <path-to>/xilinx_u55c_gen3x16_xdma_3_202210_1.xpfm \
+    --config link_100mhz.cfg -o build_hw/predecoder_kernel.xclbin build_hw/predecoder_kernel.xo
+cd ..
+
+# Phase 5: host integration (falls back to the honest software path if no
+# xclbin/card is available, which is the normal case)
+python host/run_hw.py --shots 10000
+
+# Phase 6: full benchmark grid (hours) and figures (seconds, from committed data)
+python bench/run_phase6_sweep.py
+make figures
+
+# Phase 7: paper (needs a LaTeX toolchain; see paper/build.sh for a no-root install path)
+make paper
+```
+
+Every command above writes to `results/metrics/*.json` or `results/figures/`;
+none of this project's reported numbers were computed any other way.
 
 ## Phase 2 headline numbers (d=5, p=0.003, R=5, threshold=0.5)
 
@@ -115,10 +228,11 @@ real-hardware path is still an unexercised stub). See
 shots, per-stage timing) and `host/run_hw.py` (the same design via pyxrt)
 are written against the real XRT API -- the C++ host compiles and links
 against the real `libxrt_coreutil.so` on this host -- but **have not run
-against real hardware**: no xclbin exists (the `hw` build was not
-attempted; see Phase 4). `run_hw.py` falls back to the golden model
-whenever no xclbin is available (the current, actual state), and labels
-every such result `"simulated": true`, loudly, never silently:
+against real hardware**: a real xclbin now exists (see Phase 4 update
+above), but loading it onto the card and running `run_on_hardware` has not
+been attempted. `run_hw.py` falls back to the golden model whenever no
+xclbin is available (the current, actual state), and labels every such
+result `"simulated": true`, loudly, never silently:
 
 ```
 $ python host/run_hw.py --shots 10000
@@ -175,26 +289,3 @@ See `paper/build.sh` for the LaTeX toolchain needed to rebuild it
   `docs/DECISIONS.md`
 - `torch` is the CPU-only wheel; `torch.cuda.is_available()` is asserted
   False at every environment check
-
-## Setup
-
-```
-make venv
-make smoke
-```
-
-`make smoke` builds a `d=3, rounds=3` rotated surface-code circuit, samples
-1000 shots, decodes with PyMatching, and prints the logical error rate, as a
-sanity check that the toolchain works end to end.
-
-## Hardware
-
-Target: Xilinx Alveo U55C. This development host happens to have one
-installed with a working XRT stack; see `docs/DECISIONS.md` for the full
-inventory. Later phases will state plainly whether a given result came from
-C simulation, cosimulation, or an actual on-card `hw` run.
-
-## Limitations
-
-Not yet written; will be added starting in Phase 1 and expanded through the
-project (`docs/LIMITATIONS.md`).
