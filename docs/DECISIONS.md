@@ -786,3 +786,79 @@
   `host_predecoder.cpp` (exercising `run_on_hardware`, currently a
   `NotImplementedError` stub -- see the Phase 5 entries above) is a
   separate, not-yet-taken step.
+
+## Phase 6: benchmarks and figures
+
+- **Scope confirmed with the user before running: full (distance, p,
+  precision) grid, R=5 only.** R=9 remains deferred (Phase 2 decision,
+  unchanged -- would need a fresh ~20hr training run, not attempted here).
+  5 distances x 4 noise rates x 4 precisions = 80 evaluations, all using
+  the four already-trained R=5 checkpoints; no retraining happened in
+  this phase. `bench/run_phase6_sweep.py` (new) reuses
+  `bench/run_predecoder.py`'s `evaluate_at_distance` and
+  `bench/sweep_precision.py`'s baseline-enrichment helper rather than
+  duplicating them, and generates any missing PyMatching-only baseline
+  results along the way (`ensure_baseline`, checks for the existing file
+  by exact name before running anything, so it never re-runs or
+  overwrites an existing baseline). Ran in the background, completed
+  cleanly: all 80 combinations present in `results/metrics/phase6_sweep.json`,
+  every one with real baseline enrichment (`baseline_ler` non-null for
+  all 80), 20 baseline files total (5 distances x 4 p, z-basis only,
+  matching every checkpoint's training basis).
+- **Six figures, `scripts/make_figures.py`, read only from committed
+  `results/metrics/*.json` -- no network access, no retraining, no
+  re-running HLS/v++.** `make figures` regenerates all six.
+  - Fig 1 (LER vs p at d=5): the honest finding stated visually --
+    every precision's LER curve sits *above* the PyMatching-only
+    baseline across the whole p range, not below it.
+  - Fig 2 (LER reduction factor vs d at p=0.003): the pre-decoder's
+    advantage (already <1, i.e. a net loss, even at d=5) collapses by
+    roughly 3 orders of magnitude by d=13 -- the "gets worse past the
+    training distance" finding from Phase 2, now shown across the full
+    grid instead of the four distances evaluated there.
+  - Fig 3 (SDR vs d at p=0.003): syndrome density reduction stays
+    real (~43-56%) across the whole distance range even though LER does
+    not improve -- deliberately kept as a separate figure from Fig 2
+    since it is a different, independently true claim.
+  - Fig 4 (per-round latency breakdown): total latency per pipeline as
+    plain bars with the model/decode split as direct value labels, not
+    a stacked bar. A first attempt stacked model+decode segments on a
+    log-scale y-axis; caught by actually rendering and looking at the
+    result (per the dataviz skill's own last step) -- stacking is an
+    additive operation and a log axis does not preserve it visually, so
+    the ~1-2us decode segment became invisible next to the much larger
+    model/kernel segment. Fixed by switching to single total-latency
+    bars with the breakdown as text labels instead.
+  - Fig 5 (resource utilization at d=5): deliberately NOT a "vs
+    distance" sweep -- the kernel was only ever synthesized at d=5 (see
+    the Phase 4 entries above), and this script does not estimate or
+    invent numbers for distances that were never built. The "before"
+    series is the real pre-MAC-fix HLS report recovered from git history
+    (`git show 3c2576f:results/metrics/hls_int8.json`, materialized as
+    `results/metrics/_hls_int8_before_bram_fix.json`), not hand-
+    transcribed from the prose in this file.
+  - Fig 6 (accuracy vs precision Pareto front): x-axis is nominal
+    weight bit-width (ternary plotted at log2(3), its true information
+    content, not a made-up integer), not `weight_bytes` from
+    `quantization_sweep.json` -- that field is identical (113,784) across
+    int8/int4/ternary because `scripts/export.py` pads every precision to
+    a byte-per-element on-disk representation, so it is not a real
+    "cost" signal and would have been a misleading x-axis.
+- **Color/legend choices went through the dataviz skill, not eyeballed.**
+  Four-series line/bar charts (Figs 1-3, 5) use the skill's validated
+  4-slot adjacent-order palette (blue/orange/aqua/yellow); the Fig 6
+  scatter, which needs all-pairs CVD separation (a stricter bar the
+  4-slot set does not clear), uses only the 3 validated all-pairs-safe
+  hues for int8/int4/ternary and a neutral black/gray star for the fp32
+  baseline instead of a 4th hue -- semantically correct anyway, since
+  fp32 is the reference the others are compared against, not a peer
+  category. Validated via
+  `scripts/validate_palette.js "#2a78d6,#eb6834,#1baf7a,#eda100" --mode light`
+  (adjacent, all PASS) and the same 3 hues with `--pairs all` (all
+  PASS). Two real layout defects (legend overlapping data in Fig 2 and
+  Fig 6, title clipped in Fig 6) were caught by rendering and looking at
+  each figure, not assumed correct from the code.
+- **`make figures` added to the Makefile.** Does not regenerate
+  `phase6_sweep.json` itself (that's `bench/run_phase6_sweep.py`, slow,
+  hours) -- only the plots, from whatever sweep data is already
+  committed.

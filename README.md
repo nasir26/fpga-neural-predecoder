@@ -7,10 +7,12 @@ source code; the FPGA microarchitecture, quantization study, and latency
 model are original contributions. Author: Nasir Ali, C-DAC Noida.
 
 **Status: Phase 0 (environment and sanity), Phase 1 (QEC data layer),
-Phase 3 (quantization), Phase 4 (HLS kernel: csim/csynth/cosim), and Phase 5
-(host integration, code written and API-verified but not run against real
-hardware) done. Phase 2 (pre-decoder model, CPU training) closed for now
-with an honest, partially-negative result; R=9 sizing deferred.** The R=5
+Phase 3 (quantization), Phase 4 (HLS kernel: csim/csynth/cosim, plus a
+real, timing-closed `hw` bitstream built after Phase 5), Phase 5 (host
+integration, code written and API-verified but not run against real
+hardware), and Phase 6 (benchmarks and figures, R=5 only) done. Phase 2
+(pre-decoder model, CPU training) closed for now with an honest,
+partially-negative result; R=9 sizing deferred.** The R=5
 pre-decoder trains cleanly and its corrections are
 architecturally and numerically sound (verified with an oracle test), but
 at the default decision threshold it is not yet a net win over PyMatching
@@ -125,6 +127,32 @@ wrote results/metrics/host_run_d5_p0.003.json (simulated=True)
 ```
 
 Full numbers: `results/metrics/host_run_d5_p0.003.json`.
+
+## Phase 6: benchmarks and figures (R=5 only; R=9 remains deferred)
+
+`bench/run_phase6_sweep.py` evaluates all four trained R=5 checkpoints
+(fp32/int8/int4/ternary) across the full distance x noise-rate grid
+(d in {5,7,9,11,13}, p in {0.001,0.002,0.003,0.005}, 80 combinations,
+100k shots each), generating any missing PyMatching-only baselines along
+the way. `make figures` (`scripts/make_figures.py`) regenerates every
+figure below from the committed `results/metrics/*.json` only -- no
+network access, no retraining, no re-running HLS/v++.
+
+| | |
+|---|---|
+| ![LER vs p](results/figures/fig1_ler_vs_p.png) | ![LER reduction factor vs d](results/figures/fig2_ler_reduction_factor_vs_d.png) |
+| ![SDR vs d](results/figures/fig3_sdr_vs_d.png) | ![Latency breakdown](results/figures/fig4_latency_breakdown.png) |
+| ![Resource utilization](results/figures/fig5_resource_utilization_d5.png) | ![Precision Pareto front](results/figures/fig6_pareto_precision.png) |
+
+The honest finding, stated visually rather than just in prose: every
+precision's LER curve sits *above* PyMatching-only across the tested
+noise range (Fig 1), and the pre-decoder's relative disadvantage widens
+by roughly three orders of magnitude from d=5 to d=13 (Fig 2) -- this
+grid confirms, at full scale, the distance-generalisation gap already
+found in Phase 2. Syndrome density reduction stays real and substantial
+regardless (Fig 3), a separate and still-true claim. Fig 5 is
+deliberately not a resource-vs-distance sweep: the kernel was only ever
+synthesized at d=5. Full numbers: `results/metrics/phase6_sweep.json`.
 
 ## Environment
 

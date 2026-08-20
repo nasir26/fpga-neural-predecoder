@@ -178,3 +178,24 @@ the reason it was made. Entries are added as each phase introduces them; see
   device-to-host transfer (those fields are `null`, not estimated or
   invented, since there is no real transfer happening in the fallback
   path). Real transfer numbers require an actual hardware run.
+
+## Phase 6: benchmarks and figures
+
+- **R=9 still not evaluated anywhere in this phase.** The full grid is
+  R=5 only, matching the Phase 2 deferral; see that entry above. Every
+  Phase 6 figure and number describes the R=5 model's behavior, not a
+  general claim about the method at other receptive fields.
+- **Fig 5 (resource utilization) is at d=5 only, not a distance sweep.**
+  The kernel has only ever been synthesized at d=5 (Phase 4's fixed-
+  distance scoping decision); resynthesizing at other distances was not
+  attempted in this phase and the figure does not estimate or invent
+  numbers for distances that were never built.
+- **The Fig 4 latency breakdown compares a real FPGA kernel number
+  against CPU numbers from the honest *simulated* fallback path**, not a
+  real end-to-end hardware run (no real hardware run has happened yet;
+  see the Phase 5 entries above). The FPGA bar uses the real, closed-
+  timing kernel's worst-case cycle count at its actual configured
+  100 MHz clock (`results/metrics/hw_build_int8.json`); the PyMatching
+  decode time in that same bar is still the CPU measurement, since decode
+  is not offloaded to the FPGA in this design and no real hardware run
+  exists to measure it from.
