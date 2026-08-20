@@ -20,3 +20,6 @@ host/*.xclbin
 .Xil/
 *.jou
 vitis_hls.log
+paper/*.aux
+paper/*.out
+paper/*.toc

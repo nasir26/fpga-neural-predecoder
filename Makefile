@@ -1,4 +1,4 @@
-.PHONY: venv freeze smoke clean test baseline figures
+.PHONY: venv freeze smoke clean test baseline figures paper
 
 VENV := venv
 PY := $(VENV)/bin/python
@@ -41,4 +41,10 @@ baseline:
 figures:
 	$(PY) scripts/make_figures.py
 
-# Later phases add: paper. Not defined yet; added when its phase starts.
+# Phase 7 ---------------------------------------------------------------
+
+# Rebuilds paper/paper.pdf from paper/paper.tex. Requires a LaTeX
+# toolchain (see paper/build.sh's header comment for exact packages / a
+# no-root TinyTeX install path).
+paper:
+	./paper/build.sh

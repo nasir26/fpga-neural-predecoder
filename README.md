@@ -10,7 +10,8 @@ model are original contributions. Author: Nasir Ali, C-DAC Noida.
 Phase 3 (quantization), Phase 4 (HLS kernel: csim/csynth/cosim, plus a
 real, timing-closed `hw` bitstream built after Phase 5), Phase 5 (host
 integration, code written and API-verified but not run against real
-hardware), and Phase 6 (benchmarks and figures, R=5 only) done. Phase 2
+hardware), Phase 6 (benchmarks and figures, R=5 only), and Phase 7
+(IEEE-format paper, `paper/paper.pdf`) done. Phase 2
 (pre-decoder model, CPU training) closed for now with an honest,
 partially-negative result; R=9 sizing deferred.** The R=5
 pre-decoder trains cleanly and its corrections are
@@ -153,6 +154,17 @@ found in Phase 2. Syndrome density reduction stays real and substantial
 regardless (Fig 3), a separate and still-true claim. Fig 5 is
 deliberately not a resource-vs-distance sweep: the kernel was only ever
 synthesized at d=5. Full numbers: `results/metrics/phase6_sweep.json`.
+
+## Phase 7: paper
+
+`paper/paper.pdf` (IEEE format, `IEEEtran`, built from `paper/paper.tex`
+via `make paper`) reports the full project honestly: the pre-decoder's
+negative accuracy result as the headline finding, the quantization
+study as a genuine positive result, and the real, timing-closed FPGA
+build as a genuine positive result, without conflating the three. Every
+number in it is sourced from a committed `results/metrics/*.json` file.
+See `paper/build.sh` for the LaTeX toolchain needed to rebuild it
+(a user-space TinyTeX install, no root required).
 
 ## Environment
 

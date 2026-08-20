@@ -862,3 +862,51 @@
   `phase6_sweep.json` itself (that's `bench/run_phase6_sweep.py`, slow,
   hours) -- only the plots, from whatever sweep data is already
   committed.
+
+## Phase 7: paper
+
+- **A user-shared reference `.tex` file (a different project's paper, on
+  Shor/Steane stabilizer codes) was used as a structural template only,
+  not a content source.** The user shared a complete, already-written
+  LaTeX paper describing unrelated work (different codes, different
+  kernel names, different resource/timing numbers, a 27/27 self-test
+  that has nothing to do with this repository) and asked to "take hints
+  from" it, the same framing used earlier for an unrelated HLS/v++
+  reference file (see the Phase 4/5 entries above). Read the same way:
+  document-class/package conventions, section ordering (intro, related
+  work, background formalism, architecture, implementation with
+  algorithm blocks, methodology, results with tables/figures,
+  discussion, conclusion), and algorithm/table/figure formatting
+  conventions were reused; none of that file's specific claims, numbers,
+  or results appear anywhere in this project's paper. Using them would
+  have been fabricating results for a project that never produced them.
+- **The governing project spec (`claude_code_prompt_ising_fpga.md`)
+  specifies "IEEE format," not the reference file's Springer Nature
+  (`sn-jnl`) class**, so the paper uses `IEEEtran` (conference mode),
+  not `sn-jnl`.
+- **No LaTeX toolchain existed on this machine, and there is no
+  passwordless sudo** (same constraint hit in Phase 0 for
+  `python3.11-venv`), so `apt install texlive-*` was not an option.
+  Installed TinyTeX instead (user-space, `$HOME/.TinyTeX`, no root),
+  confirmed with the user first given the ~97MB install size, then added
+  the specific missing packages (`ieeetran`, `algorithmicx`,
+  `algorithms`, `booktabs`, `multirow`, `caption`, `courier`/`times`
+  font metrics) one compile-error at a time rather than guessing a
+  package list upfront. `paper/build.sh` documents the exact package
+  list and the no-root install path for reproducibility.
+- **Every number in the paper is sourced from a committed
+  `results/metrics/*.json` file**, cross-checked against the same
+  values used in `docs/DECISIONS.md`'s own phase entries and
+  `scripts/make_figures.py`; none is a new computation done only for
+  the paper text. The paper's central finding (the pre-decoder
+  underperforms the PyMatching-only baseline and the gap widens with
+  distance) matches, and is drawn directly from, the Phase 2/6 results
+  already recorded above; the paper does not soften or reframe this
+  into a positive claim.
+- **Verified by rendering, not just by a clean compiler exit.** After
+  the first successful `pdflatex` run, all 8 pages were read back via
+  the PDF-reading tool and inspected: all six figures placed correctly,
+  both tables and the algorithm block rendered cleanly, references and
+  citations resolved after the required second pass (undefined on pass
+  one is expected for a manual `thebibliography` block, not a bug).
+  `make paper` (`paper/build.sh`) reproduces this from a clean checkout.
