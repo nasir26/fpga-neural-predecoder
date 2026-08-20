@@ -66,7 +66,7 @@ def main() -> None:
     lines.append("")
 
     lut_flat = lut.flatten()
-    lines.append(f"// OBS_PARITY_LUT[channel][t][y][x], flattened row-major; index via")
+    lines.append("// OBS_PARITY_LUT[channel][t][y][x], flattened row-major; index via")
     lines.append("// ((c*T + t)*H + y)*W + x.")
     lines.append(f"constexpr uint8_t OBS_PARITY_LUT[{lut_flat.size}] = {{")
     values_str = ", ".join(str(int(v)) for v in lut_flat)

@@ -22,7 +22,7 @@ if str(REPO_ROOT) not in sys.path:
 
 from src.qec.circuits import NoiseModel, build_rotated_surface_code_circuit, detector_coords_to_grid_index
 from src.qec.dem import build_channel_observable_map
-from src.qec.sampling import diff_frames, sample_detection_volume
+from src.qec.sampling import sample_detection_volume
 from src.model.edges import apply_local_edge_corrections
 from src.model.golden import extract_golden_layers, golden_forward
 from src.model.qat import QATPreDecoder3D

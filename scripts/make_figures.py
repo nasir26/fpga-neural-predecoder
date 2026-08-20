@@ -12,8 +12,6 @@ from __future__ import annotations
 
 import argparse
 import json
-import subprocess
-import sys
 from pathlib import Path
 
 import matplotlib
@@ -213,7 +211,7 @@ def fig4_latency_breakdown(out_dir: Path) -> None:
 
     fig, ax = plt.subplots(figsize=(5.8, 4.0))
     x = list(range(len(labels)))
-    bars = ax.bar(x, totals, color=[COLOR["baseline"], COLOR["int8"], COLOR["int8"]])
+    ax.bar(x, totals, color=[COLOR["baseline"], COLOR["int8"], COLOR["int8"]])
     for xi, total, m, d in zip(x, totals, model_us, decode_us):
         label = f"model {m:.2f}\n+ decode {d:.2f}\n= {total:.1f} $\\mu$s" if m > 0 else f"decode only\n= {total:.2f} $\\mu$s"
         ax.text(xi, total * 1.15, label, ha="center", va="bottom", fontsize=7.5)

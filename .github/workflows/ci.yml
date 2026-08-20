@@ -1,0 +1,46 @@
+# SPDX-FileCopyrightText: Copyright (c) 2026 Nasir Ali, C-DAC Noida
+# SPDX-License-Identifier: Apache-2.0
+#
+# CPU-only CI. No HLS/Vitis/Vivado here (those need a licensed toolchain and
+# take hours; see docs/DECISIONS.md and hls/run_hls.tcl for the local flow),
+# no GPU (this project is CPU-only throughout; see docs/env.lock), no
+# network access beyond pip/apt at setup time.
+
+name: CI
+
+on:
+  push:
+    branches: [master, main]
+  pull_request:
+    branches: [master, main]
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.8"
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt --extra-index-url https://download.pytorch.org/whl/cpu
+          pip install ruff==0.6.9
+
+      - name: Lint
+        run: ruff check src/ bench/ scripts/ tests/ host/
+
+      - name: Unit and regression tests (includes golden-vs-torch bit-exactness)
+        run: pytest tests/ -q
+
+      - name: 60-second d=5 smoke train and eval
+        timeout-minutes: 5
+        run: |
+          python src/model/train.py --R 5 --width 4 --epochs 1 \
+              --shots-per-epoch 2000 --batch-size 250 --seed 0
+          python bench/run_predecoder.py --checkpoint models/predecoder_R5.pt \
+              --distances 5 --p 0.003 --shots 2000 --timing-shots 100

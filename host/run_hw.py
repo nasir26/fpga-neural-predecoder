@@ -33,7 +33,6 @@ if str(REPO_ROOT) not in sys.path:
 XRT_PYTHON_PATH = "/opt/xilinx/xrt/python"
 
 from src.model.edges import apply_local_edge_corrections
-from src.model.golden import extract_golden_layers, golden_forward
 from src.model.qat import QATPreDecoder3D
 from src.qec import metrics as qec_metrics
 from src.qec.circuits import NoiseModel, build_rotated_surface_code_circuit, detector_coords_to_grid_index

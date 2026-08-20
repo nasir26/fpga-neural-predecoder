@@ -1,0 +1,11 @@
+# SPDX-FileCopyrightText: Copyright (c) 2026 Nasir Ali, C-DAC Noida
+# SPDX-License-Identifier: Apache-2.0
+#
+# E402 (module import not at top of file) is disabled project-wide: this
+# project has no installed package (no setup.py/pyproject.toml package
+# metadata), so every script and test that imports from src./bench./host.
+# does `sys.path.insert(0, str(REPO_ROOT))` before those imports by
+# necessity, not by oversight. See any tests/*.py file for the pattern.
+
+[lint]
+ignore = ["E402"]
