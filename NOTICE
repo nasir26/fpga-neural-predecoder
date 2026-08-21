@@ -27,3 +27,14 @@ This project depends on the following third-party open-source packages,
 each under its own license (see requirements.txt for pinned versions):
 Stim, PyMatching, NumPy, SciPy, PyTorch, Matplotlib, Pandas, pytest, PyYAML,
 tqdm, and (host side, optional) pyxrt / Xilinx XRT.
+
+paper/sn-jnl.cls (Springer Nature's LaTeX journal-article class, used to
+build paper/paper_jsc.pdf, the Journal of Supercomputing-format edition of
+the paper) is third-party code, not authored by this project, distributed
+under the LaTeX Project Public License (LPPL) 1.3c or later; it is not
+covered by this project's own Apache-2.0 license or SPDX headers.
+paper/sn-mathphys-num.bst (the standard BibTeX `plain` style, Copyright
+Howard Trickey and Oren Patashnik, unlimited copying/redistribution
+permitted) is included alongside it but not actually used by the build
+(paper_jsc.tex uses a manual bibliography, not bibtex; see
+docs/DECISIONS.md).

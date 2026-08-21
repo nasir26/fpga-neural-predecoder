@@ -910,3 +910,49 @@
   citations resolved after the required second pass (undefined on pass
   one is expected for a manual `thebibliography` block, not a bug).
   `make paper` (`paper/build.sh`) reproduces this from a clean checkout.
+
+## Post-Phase-8: a second paper edition, Journal of Supercomputing format
+
+- **Requested explicitly: keep `paper/paper.pdf` (IEEE) as-is, add a
+  second edition in Journal of Supercomputing format, same content.**
+  `paper/paper_jsc.tex` uses Springer's `sn-jnl` class with the
+  `sn-basic` reference style (the generic numbered-citation style for a
+  general CS/engineering Springer journal, not `sn-mathphys-num`, which
+  is for math/physics journals and is what a *different*, unrelated
+  paper the user showed earlier used -- picked deliberately, not copied
+  from that reference by default).
+- **`sn-jnl.cls` and `sn-mathphys-num.bst` are not on CTAN/TeX Live**
+  (`tlmgr search` found nothing under either name); Springer distributes
+  its journal classes from its own author-resources page, not through
+  the general TeX Live archive. Found both already present locally
+  (`/home/cdac/Documents/qec_fpga/qec-fpga-revision/paper/`, a sibling
+  project of the user's, currently in active use by another session on
+  this machine) and copied them in read-only -- did not modify anything
+  in that other project's directory. Both are correctly licensed for
+  redistribution (LPPL 1.3c for the class, unlimited-copying for the
+  `.bst`); attributed in `NOTICE`, not given this project's own SPDX
+  header since they are not this project's code.
+- **A real, if slightly obscure, natbib/class interaction had to be
+  root-caused, not worked around blindly.** `sn-jnl`'s `sn-basic` option
+  internally calls `\bibliographystyle{sn-basic}`, which assumes a real
+  `sn-basic.bst` and an actual `bibtex` run against a `.bib` database.
+  This project uses a manual `thebibliography` block instead (same
+  approach as `paper/paper.tex`, avoiding a bibtex dependency
+  entirely), so natbib (loaded by the class with the `numbers` option)
+  can never find `sn-basic`'s compatibility markers and raises "Bibliography
+  not compatible with author-year citations -- press <return> to continue
+  in numerical citation style" on every pass. Traced this to the class's
+  own source (`grep` for where it calls `\bibliographystyle`, not
+  guessed) before deciding it was safe to accept: the offered fallback
+  (numerical style) is exactly what `sn-basic` already wants, so this is
+  natbib's documented, correct recovery path for a manually-written
+  bibliography, not a real error -- confirmed by checking that citations
+  and the reference list both render correctly (verified by reading back
+  all 16 pages, not just a clean exit code). `paper/build_jsc.sh` runs
+  three plain `-interaction=nonstopmode` passes (stdin from `/dev/null`,
+  never `-halt-on-error`) and documents why in its header comment,
+  rather than leaving a future maintainer to rediscover this.
+- **Verified reproducible from a clean checkout**: `make paper-jsc`
+  regenerates a byte-identical 16-page, 836,401-byte PDF from scratch.
+  Content verified the same way as the IEEE edition -- rendered and
+  read back, not assumed from a clean compiler exit.

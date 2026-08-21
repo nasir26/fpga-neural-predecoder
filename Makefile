@@ -1,7 +1,7 @@
 # SPDX-FileCopyrightText: Copyright (c) 2026 Nasir Ali, C-DAC Noida
 # SPDX-License-Identifier: Apache-2.0
 
-.PHONY: venv freeze smoke clean test baseline figures paper
+.PHONY: venv freeze smoke clean test baseline figures paper paper-jsc
 
 VENV := venv
 PY := $(VENV)/bin/python
@@ -51,3 +51,8 @@ figures:
 # no-root TinyTeX install path).
 paper:
 	./paper/build.sh
+
+# Same paper, Journal of Supercomputing format (Springer sn-jnl, sn-basic
+# style). Kept alongside paper.pdf (IEEE format), not a replacement for it.
+paper-jsc:
+	./paper/build_jsc.sh

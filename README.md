@@ -280,6 +280,13 @@ number in it is sourced from a committed `results/metrics/*.json` file.
 See `paper/build.sh` for the LaTeX toolchain needed to rebuild it
 (a user-space TinyTeX install, no root required).
 
+A second edition, `paper/paper_jsc.pdf` (Journal of Supercomputing
+format, Springer's `sn-jnl` class, `sn-basic` reference style), carries
+identical content in Springer's single-column journal style. Build with
+`make paper-jsc`; see `paper/build_jsc.sh` for the additional packages
+needed and a note on `sn-jnl.cls`/`sn-mathphys-num.bst` (third-party
+Springer/BibTeX files, not distributed via CTAN -- see `NOTICE`).
+
 ## Environment
 
 - venv: Python 3.8.10 (see `docs/DECISIONS.md` for why, not 3.11)
